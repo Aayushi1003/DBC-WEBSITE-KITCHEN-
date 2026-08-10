@@ -50,59 +50,6 @@
   --st-wok:#0E7490; --st-tandoor:#9A2617; --st-chaat:#4D7C0F;
   --ok:#15803D; --slate:#64748B;
   --bg:#FBF4EA; --surface:#FFFFFF; --surface-2:#FDF7EF; --sunk:#F3E8D6;
-  --ink:#20
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#17130F">
-<title>DBC Chatore Food Zone — Order</title>
-<style>
-:root{
-  --saffron:#E8842E; --saffron-dk:#B45F0C; --ember:#A93412;
-  --st-wok:#0E7490; --st-tandoor:#9A2617; --st-chaat:#4D7C0F;
-  --ok:#15803D; --slate:#64748B;
-  --bg:#FBF4EA; --surface:#FFFFFF; --surface-2:#FDF7EF; --sunk:#F3E8D6;
-  --ink:#201A13; --ink-2:#4A4038; --muted:#7C6F62;
-  --line:#EADCC8; --line-2:#DCC9AE; --on-accent:#FFFFFF;
-  --shadow:0 1px 2px rgba(59,42,20,.06),0 8px 22px -14px rgba(59,42,20,.30);
-  --shadow-lg:0 2px 6px rgba(59,42,20,.10),0 28px 50px -24px rgba(59,42,20,.40);
-  --display:ui-rounded,"SF Pro Rounded","Avenir Next",Avenir,system-ui,sans-serif;
-  --body:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
-  --data:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
-  --console:#17130F; --console-ink:#FBF4EA;
-  --r:14px; --r-sm:9px; --r-lg:22px;
-}
-@media (prefers-color-scheme:dark){
-  :root{
-    --saffron:#F09A40; --saffron-dk:#F5B368; --ember:#E26A4B;
-    --st-wok:#2BA6C6; --st-tandoor:#E0705A; --st-chaat:#93C13F;
-    --ok:#42B96A; --slate:#94A3B8;
-    --bg:#141110; --surface:#1D1917; --surface-2:#241F1B; --sunk:#191513;
-    --ink:#F6EFE5; --ink-2:#DACEC0; --muted:#A39584;
-    --line:#332C25; --line-2:#453B31; --on-accent:#1A1206;
-    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 22px -14px rgba(0,0,0,.7);
-    --shadow-lg:0 2px 6px rgba(0,0,0,.5),0 28px 50px -24px rgba(0,0,0,.8);
-  --console:#17130F; --console-ink:#FBF4EA;
-  }
-}
-:root[data-theme="dark"]{
-  --saffron:#F09A40; --saffron-dk:#F5B368; --ember:#E26A4B;
-  --st-wok:#2BA6C6; --st-tandoor:#E0705A; --st-chaat:#93C13F;
-  --ok:#42B96A; --slate:#94A3B8;
-  --bg:#141110; --surface:#1D1917; --surface-2:#241F1B; --sunk:#191513;
-  --ink:#F6EFE5; --ink-2:#DACEC0; --muted:#A39584;
-  --line:#332C25; --line-2:#453B31; --on-accent:#1A1206;
-  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 22px -14px rgba(0,0,0,.7);
-  --shadow-lg:0 2px 6px rgba(0,0,0,.5),0 28px 50px -24px rgba(0,0,0,.8);
-  --console:#17130F; --console-ink:#FBF4EA;
-}
-:root[data-theme="light"]{
-  --saffron:#E8842E; --saffron-dk:#B45F0C; --ember:#A93412;
-  --st-wok:#0E7490; --st-tandoor:#9A2617; --st-chaat:#4D7C0F;
-  --ok:#15803D; --slate:#64748B;
-  --bg:#FBF4EA; --surface:#FFFFFF; --surface-2:#FDF7EF; --sunk:#F3E8D6;
   --ink:#201A13; --ink-2:#4A4038; --muted:#7C6F62;
   --line:#EADCC8; --line-2:#DCC9AE; --on-accent:#FFFFFF;
   --shadow:0 1px 2px rgba(59,42,20,.06),0 8px 22px -14px rgba(59,42,20,.30);
@@ -375,9 +322,10 @@ tr:last-child td{border-bottom:0}
 <body>
 <div class="shell">
   <header class="topbar">
-    <div class="brandmark"><span class="dot">&#9679;</span> DBC CHATORE</div>
+    <div class="brandmark"><span class="dot">&#9679;</span> DBC CHATORE &middot; STAFF</div>
+    <nav class="roles" id="roles" aria-label="Screen"></nav>
     <span class="spacer"></span>
-    <span class="pill-live"><span class="blip"></span> ORDERING OPEN</span>
+    <span id="staffbar"></span>
   </header>
   <main class="main" id="view"></main>
 </div>
@@ -460,812 +408,13 @@ window.addEventListener("resize", syncTopbar);
 try{ new ResizeObserver(syncTopbar).observe(document.querySelector(".topbar")); }catch(e){}
 
 
-const TABLES = 14;
-
-let UI = {
-  screen:"table", table:null, name:"",
-  cart:[], cat:MENU.cats[0].n, q:"", filters:{},
-  sheet:null, orderId:null, rating:0
-};
-try{ Object.assign(UI, JSON.parse(sessionStorage.getItem("dbc.ui.customer") || "{}")); }catch(e){}
-try{
-  const p = new URLSearchParams(location.search);
-  const t = p.get("table");
-  if(t) UI.table = (t === "parcel") ? "parcel" : Number(t);
-}catch(e){}
-function keepUI(){
-  try{ sessionStorage.setItem("dbc.ui.customer", JSON.stringify(UI)); }catch(e){}
-}
-
-const cartKey = (id, mods, note) => id + "|" + mods.slice().sort().join(",") + "|" + note;
-function cartCount(){ return UI.cart.reduce((n, c) => n + c.qty, 0); }
-function cartTotal(){ return UI.cart.reduce((n, c) => n + c.qty * c.p, 0); }
-function addToCart(item, mods, note, qty){
-  const k = cartKey(item.i, mods, note);
-  const found = UI.cart.find(c => c.key === k);
-  if(found) found.qty += qty;
-  else UI.cart.push({key:k, i:item.i, n:item.n, p:item.p, k2:stationOf(item),
-                     t:item.t, mods:mods, note:note, qty:qty});
-  keepUI(); render();
-}
-function bumpCart(key, d){
-  const c = UI.cart.find(x => x.key === key);
-  if(!c) return;
-  c.qty += d;
-  if(c.qty <= 0) UI.cart = UI.cart.filter(x => x.key !== key);
-  keepUI(); render();
-}
-function quickQty(itemId){
-  return UI.cart.filter(c => c.i === itemId).reduce((n, c) => n + c.qty, 0);
-}
-function placeOrder(payMode){
-  if(!UI.cart.length) return;
-  S.seq = (S.seq || 0) + 1;
-  const id = "DBC-" + String(1000 + S.seq);
-  const items = UI.cart.map(c => ({
-    n:c.n, p:c.p, qty:c.qty, k:c.k2, t:c.t, mods:c.mods, note:c.note
-  }));
-  const tickets = {};
-  [...new Set(items.map(i => i.k))].forEach(k => {
-    tickets[k] = {status:"received", at:Date.now()};
-  });
-  const order = {
-    id:id, table:UI.table, name:(UI.name || "Guest").trim(),
-    items:items, tickets:tickets, placedAt:Date.now(),
-    total:items.reduce((n, i) => n + i.p * i.qty, 0),
-    payMode:payMode, payStatus:"pending", served:false
-  };
-  S.orders.unshift(order);
-  UI.cart = []; UI.orderId = id; UI.screen = "track"; UI.sheet = null; UI.rating = 0;
-  keepUI(); save();
-}
-function submitReview(orderId, rating, comment){
-  const o = S.orders.find(x => x.id === orderId);
-  S.feedback.unshift({
-    id:"F" + Date.now(), orderId:orderId, table:o ? o.table : null,
-    rating:rating, comment:(comment || "").trim(), at:Date.now()
-  });
-  UI.reviewFor = null;
-  save();
-  toast("Thank you — the owner reads every one.");
-}
-
-function vTable(){
-  const t = [];
-  for(let i = 1; i <= TABLES; i++) t.push(i);
-  return `
-  <div class="wrap-narrow">
-    <div class="c-hero">
-      <h1>DBC Chatore Food Zone</h1>
-      <div class="tag">CREATE MEMORIES WITHOUT WORRIES</div>
-      <div class="vegbanner"><span class="veg"></span> 100% PURE VEGETARIAN</div>
-    </div>
-    <div style="padding:22px 16px 0">
-      <div class="eyebrow">Step 1 of 2</div>
-      <h2 style="font-size:20px;margin:6px 0 3px">Where are you sitting?</h2>
-      <p style="color:var(--muted);font-size:13.5px;margin:0 0 14px">
-        Your order goes straight to the right kitchen.</p>
-      <div class="tablegrid">
-        ${t.map(n => `<button data-act="table" data-v="${n}"
-           aria-pressed="${UI.table === n}">${n}</button>`).join("")}
-        <button class="wide" data-act="table" data-v="parcel"
-          aria-pressed="${UI.table === "parcel"}">Parcel</button>
-      </div>
-      <div class="field" style="margin-top:18px">
-        <label for="cname">Your name <span style="font-weight:500;color:var(--muted)">(optional)</span></label>
-        <input id="cname" data-act="name" value="${esc(UI.name)}" placeholder="e.g. Priya" autocomplete="name">
-      </div>
-      <button class="btn btn-block" style="margin-top:18px" data-act="gomenu"
-        ${UI.table ? "" : "disabled"}>See the menu</button>
-      <p style="text-align:center;color:var(--muted);font-size:12px;margin-top:14px">
-        ${MENU.items.length} dishes &middot; Jain on request &middot; No Ajinomoto</p>
-    </div>
-  </div>`;
-}
-function matches(it){
-  const q = UI.q.trim().toLowerCase();
-  if(q) return it.n.toLowerCase().includes(q) || it.c.toLowerCase().includes(q)
-              || it.s.toLowerCase().includes(q);
-  if(it.c !== UI.cat) return false;
-  if(UI.filters.mild && it.x) return false;
-  if(UI.filters.cheap && it.p >= 100) return false;
-  if(UI.filters.star && !it.g) return false;
-  return true;
-}
-function itemRow(it){
-  const q = quickQty(it.i);
-  const ctrl = q > 0
-    ? `<div class="qtybox"><button data-act="dec" data-v="${it.i}" aria-label="One less ${esc(it.n)}">&minus;</button>
-        <span>${q}</span><button data-act="open" data-v="${it.i}" aria-label="Add another ${esc(it.n)}">+</button></div>`
-    : `<button class="addbtn" data-act="open" data-v="${it.i}">ADD</button>`;
-  return `<div class="item">
-    <div class="body">
-      <div class="nm"><span class="veg"></span><b>${esc(it.n)}</b>
-        ${it.x ? '<span class="flame" title="Spicy as standard">&#9679;&#9679;</span>' : ""}
-        ${it.g ? '<span class="tagpill">SIGNATURE</span>' : ""}</div>
-      ${it.d ? `<div class="desc">${esc(it.d)}</div>` : ""}
-      <b class="pr num">${money(it.p)}</b>
-    </div>${ctrl}</div>`;
-}
-function vMenu(){
-  const list = MENU.items.filter(matches);
-  const groups = [];
-  list.forEach(it => {
-    const key = UI.q ? it.c + " · " + it.s : it.s;
-    let g = groups.find(x => x.k === key);
-    if(!g){ g = {k:key, items:[]}; groups.push(g); }
-    g.items.push(it);
-  });
-  const cnt = cartCount();
-  return `
-  <div class="wrap-narrow">
-    <div class="menubar">
-      <div class="search">
-        <span aria-hidden="true">&#128269;</span>
-        <input id="q" data-act="q" value="${esc(UI.q)}" placeholder="Search ${MENU.items.length} dishes…" aria-label="Search dishes">
-        ${UI.q ? '<button data-act="clearq" aria-label="Clear search">&times;</button>' : ""}
-      </div>
-      <div class="rail" style="margin-top:9px">
-        <button class="chip" data-act="f" data-v="star" aria-pressed="${!!UI.filters.star}">Signatures</button>
-        <button class="chip" data-act="f" data-v="cheap" aria-pressed="${!!UI.filters.cheap}">Under ₹100</button>
-        <button class="chip" data-act="f" data-v="mild" aria-pressed="${!!UI.filters.mild}">Not spicy</button>
-      </div>
-      ${UI.q ? "" : `<div class="rail" style="margin-top:8px">
-        ${MENU.cats.map(c => `<button class="chip" data-act="cat" data-v="${esc(c.n)}"
-          aria-pressed="${UI.cat === c.n}">${esc(c.n)}</button>`).join("")}
-      </div>`}
-    </div>
-    <div class="secgroup">
-      ${groups.length ? groups.map(g => `
-        <div class="sechead"><h3>${esc(g.k)}</h3><span class="line"></span></div>
-        ${g.items.map(itemRow).join("")}`).join("")
-        : '<div class="empty">Nothing matches that. Try another search or clear the filters.</div>'}
-    </div>
-  </div>
-  ${cnt ? `<div class="cartbar"><div class="inner">
-      <div class="sum"><b>${cnt} item${cnt > 1 ? "s" : ""} &middot; ${money(cartTotal())}</b>
-        <span>Table ${UI.table === "parcel" ? "— Parcel" : UI.table}</span></div>
-      <button class="btn" data-act="sheet" data-v="cart">Review order</button>
-    </div></div>` : ""}`;
-}
-function vCheckout(){
-  const sub = cartTotal();
-  const parcel = UI.table === "parcel" ? 20 : 0;
-  return `
-  <div class="wrap-narrow" style="padding-top:14px">
-    <div style="padding:0 16px">
-      <button class="undo" data-act="screen" data-v="menu">&larr; Back to menu</button>
-      <h2 style="font-size:22px;margin:8px 0 16px">Confirm your order</h2>
-
-      <div class="summary" style="margin-bottom:16px">
-        ${UI.cart.map(c => `<div class="srow">
-          <span>${c.qty} &times; ${esc(c.n)}${c.mods.length ? ` <span style="color:var(--saffron-dk)">(${esc(c.mods.join(", "))})</span>` : ""}</span>
-          <span class="num">${money(c.p * c.qty)}</span></div>`).join("")}
-        <div class="srow"><span>Subtotal</span><span class="num">${money(sub)}</span></div>
-        ${parcel ? `<div class="srow"><span>Packing</span><span class="num">${money(parcel)}</span></div>` : ""}
-        <div class="srow total"><span>Total</span><span class="num">${money(sub + parcel)}</span></div>
-      </div>
-
-      <div class="field" style="margin-bottom:16px">
-        <label for="cname2">Name for the order</label>
-        <input id="cname2" data-act="name" value="${esc(UI.name)}" placeholder="e.g. Priya">
-      </div>
-
-      <div class="eyebrow" style="margin-bottom:8px">How you'll pay</div>
-      <div style="display:flex;gap:8px;margin-bottom:10px">
-        <button class="chip" style="flex:1;justify-content:center;padding:11px"
-          data-act="pay" data-v="counter" aria-pressed="true">Pay at counter</button>
-      </div>
-      <div style="display:flex;gap:8px;margin-bottom:12px">
-        <button class="chip" style="flex:1;justify-content:center;padding:11px" disabled>GPay</button>
-        <button class="chip" style="flex:1;justify-content:center;padding:11px" disabled>PhonePe</button>
-        <button class="chip" style="flex:1;justify-content:center;padding:11px" disabled>Paytm</button>
-      </div>
-      <div class="note-box" style="margin-bottom:18px">
-        <span aria-hidden="true">&#128274;</span>
-        <div><b>Online payment isn't switched on yet.</b> Place the order now and pay at the
-        counter. Once your UPI details are added, these three buttons start working — nothing
-        else on this screen changes.</div>
-      </div>
-
-      <button class="btn btn-block" data-act="place">Send order to kitchen &middot; ${money(sub + parcel)}</button>
-      <p style="text-align:center;color:var(--muted);font-size:12px;margin-top:12px">
-        Ready in about ${UI.cart.length ? Math.max(...UI.cart.map(c => c.t || 12)) : 12} minutes</p>
-    </div>
-  </div>`;
-}
-function vTrack(){
-  const o = S.orders.find(x => x.id === UI.orderId);
-  if(!o) return `<div class="wrap-narrow"><div class="empty">That order is no longer on the system.
-    <div style="margin-top:14px"><button class="btn" data-act="restart">Start a new order</button></div></div></div>`;
-  const st = orderStatus(o);
-  const stns = orderStations(o);
-  const done = S.feedback.find(f => f.orderId === o.id);
-  const head = st === "served" ? "Enjoy your meal"
-    : st === "ready" ? "Ready — coming to your table" : "We're on it";
-  return `
-  <div class="wrap-narrow">
-    <div class="track-head">
-      <div class="eyebrow" style="color:#B9A48C">Order number</div>
-      <div class="no">${o.id}</div>
-      <div style="display:flex;gap:16px;margin-top:8px;font-size:12.5px;color:#C9BCAB">
-        <span>${o.table === "parcel" ? "Parcel" : "Table " + o.table}</span>
-        <span class="num">${mins(o.placedAt)} min ago</span>
-        <span class="num">${money(o.total + (o.table === "parcel" ? 20 : 0))}</span>
-      </div>
-      <h2 style="font-size:21px;margin-top:14px;color:#fff">${head}</h2>
-    </div>
-
-    <div style="padding:18px 16px 0">
-      <div class="eyebrow" style="margin-bottom:9px">Your order across our three kitchens</div>
-      <div class="stepline">
-        ${stns.map(k => {
-          const t = o.tickets[k], s = STATIONS[k];
-          const n = o.items.filter(i => i.k === k).reduce((a, i) => a + i.qty, 0);
-          return `<div class="stn">
-            <div class="ic" style="background:${s.color}">${s.icon}</div>
-            <div class="txt"><b>${esc(s.name)} kitchen</b>
-              <span>${n} item${n > 1 ? "s" : ""} &middot; ${STATUS[t.status]}</span></div>
-            <span class="badge b-${t.status}">${t.status === "ready" ? "Ready" : t.status === "cooking" ? "Cooking" : "Received"}</span>
-          </div>`;
-        }).join("")}
-      </div>
-
-      <div class="summary" style="margin-top:16px">
-        <div class="eyebrow" style="margin-bottom:7px">What you ordered</div>
-        ${o.items.map(i => `<div class="srow"><span>${i.qty} &times; ${esc(i.n)}${
-          i.mods.length ? ` <span style="color:var(--saffron-dk)">(${esc(i.mods.join(", "))})</span>` : ""}</span>
-          <span class="num">${money(i.p * i.qty)}</span></div>`).join("")}
-      </div>
-
-      <div style="margin-top:18px">${done ? reviewDone(done) : reviewCard(o)}</div>
-
-      <div style="display:flex;gap:9px;margin-top:16px">
-        <button class="btn btn-ghost" style="flex:1" data-act="restart">Order something else</button>
-      </div>
-      <p style="text-align:center;color:var(--muted);font-size:11.5px;margin:16px 0 0">
-        Parcel ₹20 &middot; Jain on request &middot; +91 70697 36525</p>
-    </div>
-  </div>`;
-}
-function reviewCard(o){
-  const r = UI.rating || 0;
-  return `<div class="review">
-    <div class="eyebrow" style="color:var(--saffron-dk)">Before you go</div>
-    <h3 style="font-size:17px;margin:5px 0 2px">How are we doing?</h3>
-    <p style="font-size:13px;color:var(--ink-2);margin:0">
-      Takes ten seconds. The owner reads every single one — it decides what stays on the menu.</p>
-    <div class="stars" role="group" aria-label="Rating out of 5">
-      ${[1,2,3,4,5].map(n => `<button data-act="rate" data-v="${n}"
-        class="${r >= n ? "on" : ""}" aria-label="${n} star${n > 1 ? "s" : ""}"
-        aria-pressed="${r === n}">&#9733;</button>`).join("")}
-    </div>
-    ${r ? `<div class="field" style="margin-top:12px">
-        <label for="rc">${r >= 4 ? "What did you like most?" : "What should we fix?"}
-          <span style="font-weight:500;color:var(--muted)">(optional)</span></label>
-        <textarea id="rc" rows="2" placeholder="${r >= 4 ? "The chaap was perfect…" : "The wait was long…"}"></textarea>
-      </div>
-      <button class="btn btn-block" style="margin-top:11px" data-act="sendreview" data-v="${o.id}">
-        Send feedback</button>` : ""}
-  </div>`;
-}
-function reviewDone(f){
-  return `<div class="thanks">
-    <span style="font-size:22px" aria-hidden="true">&#10003;</span>
-    <div><b style="display:block">Thanks — feedback received</b>
-      <span style="font-size:12.5px;color:var(--ink-2)">You rated us
-        <span class="star">${"&#9733;".repeat(f.rating)}</span> ${f.rating}/5.
-        ${f.rating <= 2 ? "Someone will come and speak to you." : "See you again soon."}</span></div>
-  </div>`;
-}
-function sheetItem(it){
-  const opts = ["Less spicy", "Extra spicy", "No onion", "No garlic", "Jain", "Extra cheese"];
-  const chosen = UI.sheetMods || [];
-  const qty = UI.sheetQty || 1;
-  return `<div class="sheet-bg" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true"
-    aria-label="${esc(it.n)}" data-stop="1">
-    <div class="sheet-head">
-      <div><h3>${esc(it.n)}</h3>
-        <div style="font-size:12.5px;color:var(--muted);margin-top:3px">
-          ${esc(it.c)} &middot; ${esc(it.s)} &middot; about ${it.t} min</div></div>
-      <button class="x" data-act="closesheet" aria-label="Close">&times;</button>
-    </div>
-    ${it.d ? `<p style="font-size:13.5px;color:var(--ink-2);margin:8px 0 0">${esc(it.d)}</p>` : ""}
-    <div style="display:flex;align-items:center;gap:9px;margin:12px 0 4px">
-      <span class="veg"></span><b class="num" style="font-size:19px">${money(it.p)}</b>
-      ${it.x ? '<span class="flame">&#9679;&#9679; spicy as standard</span>' : ""}
-    </div>
-    <div style="margin-top:14px" class="eyebrow">Any changes?</div>
-    <div class="optgrid" style="margin-top:8px">
-      ${opts.map(o => `<button class="chip" data-act="mod" data-v="${esc(o)}"
-        aria-pressed="${chosen.includes(o)}">${o}</button>`).join("")}
-    </div>
-    <div class="field" style="margin-top:14px">
-      <label for="snote">Anything else for the kitchen?</label>
-      <input id="snote" data-act="snote" value="${esc(UI.sheetNote || "")}" placeholder="e.g. less oil please">
-    </div>
-    <div style="display:flex;align-items:center;gap:14px;margin-top:18px">
-      <div class="qtybox" style="background:var(--sunk);min-width:110px;height:42px">
-        <button data-act="sq" data-v="-1" style="color:var(--ink)" aria-label="Fewer">&minus;</button>
-        <span style="color:var(--ink);font-size:15px">${qty}</span>
-        <button data-act="sq" data-v="1" style="color:var(--ink)" aria-label="More">+</button>
-      </div>
-      <button class="btn" style="flex:1" data-act="addcart" data-v="${it.i}">
-        Add &middot; ${money(it.p * qty)}</button>
-    </div>
-  </div></div>`;
-}
-function sheetCart(){
-  const sub = cartTotal();
-  return `<div class="sheet-bg" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true"
-    aria-label="Your order" data-stop="1">
-    <div class="sheet-head"><h3>Your order</h3>
-      <button class="x" data-act="closesheet" aria-label="Close">&times;</button></div>
-    ${UI.cart.length ? UI.cart.map(c => `
-      <div class="item"><div class="body">
-        <div class="nm"><span class="veg"></span><b>${esc(c.n)}</b></div>
-        ${c.mods.length ? `<div class="desc" style="color:var(--saffron-dk)">${esc(c.mods.join(", "))}</div>` : ""}
-        ${c.note ? `<div class="desc" style="font-style:italic">“${esc(c.note)}”</div>` : ""}
-        <b class="pr num">${money(c.p * c.qty)}</b></div>
-        <div class="qtybox">
-          <button data-act="dec2" data-v="${esc(c.key)}" aria-label="One less">&minus;</button>
-          <span>${c.qty}</span>
-          <button data-act="inc2" data-v="${esc(c.key)}" aria-label="One more">+</button>
-        </div></div>`).join("")
-      : '<div class="empty">Your order is empty.</div>'}
-    ${UI.cart.length ? `<div class="srow total" style="border-top:1px solid var(--line);margin-top:10px;padding-top:12px">
-        <span>Subtotal</span><span class="num">${money(sub)}</span></div>
-      <button class="btn btn-block" style="margin-top:14px" data-act="screen" data-v="checkout">
-        Go to checkout</button>` : ""}
-  </div></div>`;
-}
-
-function render(){
-  $("#view").innerHTML =
-      UI.screen === "table" ? vTable()
-    : UI.screen === "menu" ? vMenu()
-    : UI.screen === "checkout" ? vCheckout()
-    : vTrack();
-  let ov = "";
-  if(UI.sheet === "cart") ov = sheetCart();
-  else if(UI.sheet){
-    const it = MENU.items.find(x => x.i === UI.sheet);
-    if(it) ov = sheetItem(it);
-  }
-  $("#overlay").innerHTML = ov;
-  keepUI();
-}
-
-document.addEventListener("click", ev => {
-  const el = ev.target.closest("[data-act]");
-  if(!el) return;
-  const a = el.dataset.act, v = el.dataset.v;
-  if(a === "closesheet" && ev.target.closest("[data-stop]") && !el.classList.contains("x")) return;
-  switch(a){
-    case "table": UI.table = v === "parcel" ? "parcel" : Number(v); render(); break;
-    case "gomenu": UI.screen = "menu"; render(); break;
-    case "screen": UI.screen = v; UI.sheet = null; render(); break;
-    case "cat": UI.cat = v; UI.q = ""; render(); break;
-    case "clearq": UI.q = ""; render(); break;
-    case "f": UI.filters[v] = !UI.filters[v]; render(); break;
-    case "open":
-      UI.sheet = Number(v); UI.sheetMods = []; UI.sheetNote = ""; UI.sheetQty = 1; render(); break;
-    case "sheet": UI.sheet = v; render(); break;
-    case "closesheet": UI.sheet = null; render(); break;
-    case "mod": {
-      const m = UI.sheetMods || [];
-      UI.sheetMods = m.includes(v) ? m.filter(x => x !== v) : m.concat([v]);
-      render(); break;
-    }
-    case "sq": UI.sheetQty = Math.max(1, (UI.sheetQty || 1) + Number(v)); render(); break;
-    case "addcart": {
-      const it = MENU.items.find(x => x.i === Number(v));
-      addToCart(it, UI.sheetMods || [], UI.sheetNote || "", UI.sheetQty || 1);
-      UI.sheet = null; toast(it.n + " added"); render(); break;
-    }
-    case "dec": {
-      const last = UI.cart.filter(c => c.i === Number(v)).pop();
-      if(last) bumpCart(last.key, -1);
-      break;
-    }
-    case "inc2": bumpCart(v, 1); break;
-    case "dec2": bumpCart(v, -1); break;
-    case "pay": UI.pay = v; render(); break;
-    case "place": placeOrder(UI.pay || "counter"); break;
-    case "restart":
-      UI.screen = "table"; UI.orderId = null; UI.rating = 0; UI.cart = []; render(); break;
-    case "rate": UI.rating = Number(v); render(); break;
-    case "sendreview": {
-      const box = $("#rc");
-      submitReview(v, UI.rating, box ? box.value : "");
-      UI.rating = 0;
-      break;
-    }
-  }
-});
-document.addEventListener("input", ev => {
-  const el = ev.target.closest("[data-act]");
-  if(!el) return;
-  if(el.dataset.act === "q"){
-    UI.q = el.value;
-    const pos = el.selectionStart;
-    render();
-    const again = $("#q");
-    if(again){ again.focus(); again.setSelectionRange(pos, pos); }
-  }
-  if(el.dataset.act === "name") UI.name = el.value;
-  if(el.dataset.act === "snote") UI.sheetNote = el.value;
-});
-document.addEventListener("keydown", ev => {
-  if(ev.key === "Escape" && UI.sheet){ UI.sheet = null; render(); }
-});
-setInterval(() => {
-  if(UI.screen === "track"){
-    const el = document.activeElement;
-    if(!el || (el.tagName !== "INPUT" && el.tagName !== "TEXTAREA")) render();
-  }
-}, 20000);
-
-load();
-render();
-syncTopbar();
-
-</script>
-</body>
-</html>
-1A13; --ink-2:#4A4038; --muted:#7C6F62;
-  --line:#EADCC8; --line-2:#DCC9AE; --on-accent:#FFFFFF;
-  --shadow:0 1px 2px rgba(59,42,20,.06),0 8px 22px -14px rgba(59,42,20,.30);
-  --shadow-lg:0 2px 6px rgba(59,42,20,.10),0 28px 50px -24px rgba(59,42,20,.40);
-  --console:#17130F; --console-ink:#FBF4EA;
-}
-
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);
-  font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}
-h1,h2,h3,h4{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:-.01em}
-button{font-family:inherit;font-size:inherit;color:inherit;cursor:pointer;border:0;background:none}
-input,select,textarea{font-family:inherit;font-size:inherit;color:var(--ink)}
-:focus-visible{outline:2.5px solid var(--saffron);outline-offset:2px;border-radius:4px}
-.num{font-variant-numeric:tabular-nums}
-.mono{font-family:var(--data);font-variant-numeric:tabular-nums}
-
-/* ---------- shell ---------- */
-.shell{min-height:100vh;display:flex;flex-direction:column}
-.topbar{position:sticky;top:0;z-index:60;display:flex;align-items:center;
-  gap:14px;padding:8px 14px;background:var(--console);color:var(--console-ink);flex-wrap:wrap}
-.brandmark{display:flex;align-items:center;gap:9px;font-family:var(--display);
-  font-weight:700;font-size:14px;letter-spacing:.01em;white-space:nowrap}
-.brandmark .dot{width:22px;height:22px;border-radius:50%;background:var(--saffron);
-  display:grid;place-items:center;font-size:12px;color:#1A1206}
-.roles{display:flex;gap:3px;background:rgba(255,255,255,.09);padding:3px;border-radius:999px;flex-wrap:wrap}
-.roles button{padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600;
-  color:#D8CCBC;white-space:nowrap;transition:background .15s,color .15s}
-.roles button:hover{color:#fff}
-.roles button[aria-pressed="true"]{background:var(--saffron);color:#1A1206}
-.topbar .spacer{flex:1}
-.pill-live{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#C9BCAB;
-  font-weight:600;letter-spacing:.02em}
-.blip{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 0 var(--ok);
-  animation:blip 2.4s infinite}
-@keyframes blip{0%{box-shadow:0 0 0 0 rgba(66,185,106,.5)}70%{box-shadow:0 0 0 7px rgba(66,185,106,0)}100%{box-shadow:0 0 0 0 rgba(66,185,106,0)}}
-@media (prefers-reduced-motion:reduce){.blip{animation:none}}
-.main{flex:1;width:100%}
-.wrap{max-width:1180px;margin:0 auto;padding:20px 16px 60px}
-.wrap-narrow{max-width:520px;margin:0 auto;padding:0 0 96px}
-
-/* ---------- generic ---------- */
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow)}
-.eyebrow{font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  padding:11px 18px;border-radius:999px;font-weight:700;font-size:14.5px;
-  background:var(--saffron);color:var(--on-accent);transition:transform .12s,filter .15s}
-.btn:hover{filter:brightness(1.07)}
-.btn:active{transform:scale(.97)}
-.btn[disabled]{opacity:.42;cursor:not-allowed;filter:none;transform:none}
-.btn-ghost{background:transparent;color:var(--ink);border:1.5px solid var(--line-2)}
-.btn-ghost:hover{background:var(--sunk);filter:none}
-.btn-block{width:100%}
-.btn-sm{padding:7px 13px;font-size:13px}
-.chip{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;border-radius:999px;
-  font-size:12.5px;font-weight:600;border:1.5px solid var(--line-2);color:var(--ink-2);
-  background:var(--surface);white-space:nowrap;transition:background .15s,border-color .15s}
-.chip:hover{border-color:var(--saffron)}
-.chip[aria-pressed="true"]{background:var(--saffron);border-color:var(--saffron);color:var(--on-accent)}
-.veg{width:13px;height:13px;border:1.6px solid var(--ok);border-radius:3px;
-  display:inline-grid;place-items:center;flex:none}
-.veg::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--ok)}
-.flame{color:var(--ember);font-size:11px}
-.star{color:var(--saffron)}
-.rail{display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;scrollbar-width:thin}
-.rail::-webkit-scrollbar{height:5px}
-.rail::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px}
-.empty{text-align:center;color:var(--muted);padding:48px 20px;font-size:14px}
-.field{display:flex;flex-direction:column;gap:6px}
-.field label{font-size:12px;font-weight:700;color:var(--ink-2)}
-.field input,.field select,.field textarea{padding:11px 13px;border-radius:var(--r-sm);
-  border:1.5px solid var(--line-2);background:var(--surface);width:100%}
-.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--saffron);outline:none}
-
-/* ---------- customer ---------- */
-.c-hero{background:linear-gradient(168deg,var(--saffron) 0%,#D9701D 100%);
-  color:#fff;padding:30px 22px 26px;border-radius:0 0 var(--r-lg) var(--r-lg);text-align:center}
-.c-hero h1{font-size:29px;font-weight:800;letter-spacing:-.02em}
-.c-hero .tag{font-size:12px;opacity:.9;letter-spacing:.04em;margin-top:3px}
-.vegbanner{display:inline-flex;align-items:center;gap:8px;background:#fff;color:var(--ok);
-  border-radius:999px;padding:7px 15px;font-weight:800;font-size:12.5px;margin-top:16px}
-.tablegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:9px}
-.tablegrid button{padding:15px 6px;border-radius:var(--r-sm);border:1.5px solid var(--line-2);
-  background:var(--surface);font-weight:700;font-family:var(--display);font-size:16px}
-.tablegrid button:hover{border-color:var(--saffron)}
-.tablegrid button[aria-pressed="true"]{background:var(--saffron);border-color:var(--saffron);color:var(--on-accent)}
-.tablegrid button.wide{grid-column:span 2;font-size:14px}
-
-.menubar{position:sticky;top:var(--topbar-h,47px);z-index:30;background:var(--bg);
-  border-bottom:1px solid var(--line);padding:10px 16px 8px}
-.search{display:flex;align-items:center;gap:9px;background:var(--surface);
-  border:1.5px solid var(--line-2);border-radius:999px;padding:9px 15px}
-.search input{border:0;background:none;flex:1;outline:none;padding:0}
-.secgroup{padding:0 16px}
-.sechead{display:flex;align-items:baseline;gap:9px;margin:22px 0 8px}
-.sechead h3{font-size:15.5px;font-weight:800}
-.sechead .line{flex:1;height:1px;background:var(--line)}
-.item{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-bottom:1px solid var(--line)}
-.item:last-child{border-bottom:0}
-.item .body{flex:1;min-width:0}
-.item .nm{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
-.item .nm b{font-weight:650;font-size:14.5px}
-.item .desc{font-size:12.3px;color:var(--muted);margin-top:3px;line-height:1.42}
-.item .pr{font-weight:750;font-size:14.5px;margin-top:5px;display:block}
-.tagpill{font-size:9.5px;font-weight:800;letter-spacing:.06em;padding:2px 6px;border-radius:4px;
-  background:color-mix(in srgb,var(--saffron) 18%,transparent);color:var(--saffron-dk)}
-.addbtn{flex:none;min-width:76px;height:34px;border-radius:999px;border:1.5px solid var(--saffron);
-  color:var(--saffron-dk);font-weight:800;font-size:13px;background:var(--surface);
-  display:grid;place-items:center;transition:background .15s}
-.addbtn:hover{background:color-mix(in srgb,var(--saffron) 12%,transparent)}
-.qtybox{flex:none;min-width:76px;height:34px;border-radius:999px;background:var(--saffron);
-  color:var(--on-accent);display:flex;align-items:center;justify-content:space-between;padding:0 4px}
-.qtybox button{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;
-  font-weight:800;font-size:15px;color:var(--on-accent)}
-.qtybox button:hover{background:rgba(0,0,0,.14)}
-.qtybox span{font-weight:800;font-size:13.5px;font-variant-numeric:tabular-nums}
-
-.cartbar{position:fixed;left:0;right:0;bottom:0;z-index:50;padding:10px 14px calc(10px + env(safe-area-inset-bottom));
-  background:var(--surface);border-top:1px solid var(--line);box-shadow:0 -8px 28px -18px rgba(0,0,0,.5)}
-.cartbar .inner{max-width:520px;margin:0 auto;display:flex;align-items:center;gap:12px}
-.cartbar .sum{flex:1;min-width:0}
-.cartbar .sum b{display:block;font-size:15px;font-weight:800}
-.cartbar .sum span{font-size:11.5px;color:var(--muted)}
-
-.sheet-bg{position:fixed;inset:0;z-index:80;background:rgba(24,16,8,.55);
-  display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px)}
-.sheet{background:var(--surface);width:100%;max-width:520px;border-radius:var(--r-lg) var(--r-lg) 0 0;
-  max-height:88vh;overflow-y:auto;padding:18px 18px calc(20px + env(safe-area-inset-bottom));
-  box-shadow:var(--shadow-lg);animation:rise .22s ease-out}
-@keyframes rise{from{transform:translateY(26px);opacity:.6}to{transform:none;opacity:1}}
-@media (prefers-reduced-motion:reduce){.sheet{animation:none}}
-.sheet-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:6px}
-.sheet-head h3{font-size:19px;font-weight:800}
-.x{width:32px;height:32px;border-radius:50%;background:var(--sunk);display:grid;place-items:center;
-  font-size:17px;flex:none;color:var(--ink-2)}
-.optgrid{display:flex;flex-wrap:wrap;gap:7px}
-.summary{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px}
-.srow{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:3px 0;color:var(--ink-2)}
-.srow.total{border-top:1px solid var(--line);margin-top:7px;padding-top:9px;
-  font-weight:800;font-size:16px;color:var(--ink)}
-
-/* ---------- tracking ---------- */
-.track-head{background:var(--console);color:var(--console-ink);padding:22px;border-radius:0 0 var(--r-lg) var(--r-lg)}
-.track-head .no{font-family:var(--data);font-size:26px;font-weight:700;letter-spacing:.02em;color:var(--saffron)}
-.stepline{display:flex;flex-direction:column;gap:11px;margin-top:4px}
-.stn{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--r);
-  border:1px solid var(--line);background:var(--surface)}
-.stn .ic{width:34px;height:34px;border-radius:10px;flex:none;display:grid;place-items:center;
-  font-size:15px;color:#fff;font-weight:800}
-.stn .txt{flex:1;min-width:0}
-.stn .txt b{display:block;font-size:14px;font-weight:750}
-.stn .txt span{font-size:11.8px;color:var(--muted)}
-.badge{font-size:10.5px;font-weight:800;letter-spacing:.05em;padding:4px 9px;border-radius:999px;
-  text-transform:uppercase;white-space:nowrap}
-.b-received{background:color-mix(in srgb,var(--slate) 18%,transparent);color:var(--slate)}
-.b-cooking{background:color-mix(in srgb,var(--saffron) 20%,transparent);color:var(--saffron-dk)}
-.b-ready{background:color-mix(in srgb,var(--ok) 18%,transparent);color:var(--ok)}
-
-/* ---------- review ---------- */
-.review{border:1.5px solid var(--saffron);border-radius:var(--r);
-  background:color-mix(in srgb,var(--saffron) 8%,var(--surface));padding:16px}
-.stars{display:flex;gap:5px;margin:10px 0 2px}
-.stars button{width:42px;height:42px;border-radius:11px;display:grid;place-items:center;
-  font-size:23px;background:var(--surface);border:1.5px solid var(--line-2);
-  transition:transform .12s,border-color .15s;color:var(--line-2)}
-.stars button:hover{transform:translateY(-2px);border-color:var(--saffron)}
-.stars button.on{color:var(--saffron);border-color:var(--saffron);
-  background:color-mix(in srgb,var(--saffron) 14%,transparent)}
-.thanks{display:flex;align-items:center;gap:11px;padding:15px;border-radius:var(--r);
-  background:color-mix(in srgb,var(--ok) 12%,var(--surface));border:1.5px solid var(--ok)}
-
-/* ---------- kitchen ---------- */
-.k-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
-.k-badge{width:46px;height:46px;border-radius:13px;display:grid;place-items:center;
-  font-size:21px;color:#fff;flex:none}
-.k-head h2{font-size:22px;font-weight:800}
-.k-head p{margin:2px 0 0;font-size:12.5px;color:var(--muted)}
-.k-counts{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
-.kcount{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-sm);
-  padding:7px 13px;text-align:center;min-width:70px}
-.kcount b{display:block;font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1}
-.kcount span{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-.tickets{display:grid;grid-template-columns:repeat(auto-fill,minmax(268px,1fr));gap:15px;align-items:start}
-.chit{background:var(--surface);border:1px solid var(--line);border-radius:3px 3px var(--r-sm) var(--r-sm);
-  box-shadow:var(--shadow);position:relative;overflow:hidden}
-.chit::before{content:"";position:absolute;top:0;left:0;right:0;height:5px;background:var(--stn-c)}
-.chit.fresh{animation:fresh 1.6s ease-out 2}
-@keyframes fresh{0%,100%{box-shadow:var(--shadow)}50%{box-shadow:0 0 0 3px color-mix(in srgb,var(--stn-c) 40%,transparent),var(--shadow)}}
-@media (prefers-reduced-motion:reduce){.chit.fresh{animation:none}}
-.chit.late{border-color:var(--ember);box-shadow:0 0 0 2px color-mix(in srgb,var(--ember) 26%,transparent),var(--shadow)}
-.chit .perf{height:9px;background:repeating-linear-gradient(90deg,var(--line) 0 5px,transparent 5px 10px);
-  margin-top:5px;opacity:.7}
-.chit .top{display:flex;justify-content:space-between;align-items:flex-start;gap:9px;padding:11px 14px 8px}
-.chit .tbl{font-family:var(--display);font-size:19px;font-weight:800;line-height:1.15}
-.chit .tbl small{display:block;font-family:var(--body);font-size:11.5px;font-weight:600;color:var(--muted)}
-.chit .idno{font-family:var(--data);font-size:11px;background:var(--console);color:var(--console-ink);
-  padding:3px 7px;border-radius:5px;white-space:nowrap}
-.chit .clock{padding:0 14px 9px;font-size:12px;font-weight:700;color:var(--muted);
-  display:flex;align-items:center;gap:6px}
-.chit.late .clock{color:var(--ember)}
-.chit ul{list-style:none;margin:0;padding:10px 14px;border-top:1px dashed var(--line);
-  display:flex;flex-direction:column;gap:9px}
-.chit li .ln{display:flex;gap:9px;align-items:baseline}
-.chit li .q{font-family:var(--data);font-weight:700;font-size:15px;color:var(--stn-c);flex:none}
-.chit li .nm{font-size:14.5px;font-weight:650;line-height:1.3}
-.chit li .mod{margin:3px 0 0 26px;font-size:11.8px;color:var(--saffron-dk);font-weight:600}
-.chit li .note{margin:2px 0 0 26px;font-size:11.8px;color:var(--ember);font-style:italic}
-.chit .act{padding:11px 14px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center}
-.chit .act .btn{flex:1}
-.undo{font-size:11.5px;color:var(--muted);font-weight:600;text-decoration:underline;padding:6px}
-.donebar{display:flex;align-items:center;gap:10px;padding:10px 14px;border-top:1px solid var(--line);
-  background:color-mix(in srgb,var(--ok) 10%,transparent);font-size:13px;font-weight:700;color:var(--ok)}
-
-/* ---------- admin ---------- */
-.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:22px}
-.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px}
-.tile b{display:block;font-family:var(--display);font-size:26px;font-weight:800;
-  font-variant-numeric:tabular-nums;line-height:1.15;margin-top:5px}
-.tile span{font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
-.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start}
-@media (max-width:860px){.cols{grid-template-columns:1fr}}
-.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
-.panel>h3{padding:13px 16px;border-bottom:1px solid var(--line);font-size:14.5px;font-weight:800;
-  display:flex;justify-content:space-between;align-items:center;gap:10px}
-.panel .pad{padding:14px 16px}
-.tbl-scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:13.2px}
-th{text-align:left;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--muted);padding:9px 16px;border-bottom:1px solid var(--line);font-weight:800;white-space:nowrap}
-td{padding:10px 16px;border-bottom:1px solid var(--line);vertical-align:middle}
-tr:last-child td{border-bottom:0}
-.bar{height:7px;border-radius:4px;background:var(--saffron);min-width:3px}
-.barrow{display:grid;grid-template-columns:1fr 46px;gap:10px;align-items:center;padding:6px 0}
-.barrow .lbl{font-size:13px;display:flex;align-items:center;gap:8px;min-width:0}
-.barrow .lbl span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fb{padding:12px 16px;border-bottom:1px solid var(--line)}
-.fb:last-child{border-bottom:0}
-.fb .hd{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
-.fb .cm{font-size:13px;color:var(--ink-2);margin-top:5px;line-height:1.45}
-.note-box{display:flex;gap:11px;padding:13px 15px;border-radius:var(--r);
-  background:color-mix(in srgb,var(--saffron) 10%,var(--surface));
-  border:1px solid color-mix(in srgb,var(--saffron) 34%,transparent);font-size:13px;line-height:1.5}
-.note-box b{font-weight:750}
-.stn-select{padding:6px 9px;border-radius:7px;border:1.5px solid var(--line-2);background:var(--surface);font-size:12.5px}
-.stafflink{font-size:11.5px;font-weight:650;color:var(--muted);letter-spacing:.06em;
-  text-transform:uppercase;padding:8px 14px;border-radius:999px;border:1px solid var(--line)}
-.stafflink:hover{color:var(--ink-2);border-color:var(--line-2)}
-.lockbtn{font-size:11.5px;font-weight:700;letter-spacing:.03em;color:#E8DCCB;
-  border:1px solid rgba(255,255,255,.22);border-radius:999px;padding:5px 12px}
-.lockbtn:hover{background:rgba(255,255,255,.1);color:#fff}
-.pinrow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap}
-.pinrow .field{flex:1;min-width:150px}
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:88px;z-index:99;
-  background:var(--console);color:var(--console-ink);padding:11px 20px;border-radius:999px;font-size:13.5px;
-  font-weight:650;box-shadow:var(--shadow-lg);animation:rise .2s ease-out}
-</style>
-</head>
-<body>
-<div class="shell">
-  <header class="topbar">
-    <div class="brandmark"><span class="dot">&#9679;</span> DBC CHATORE &middot; STAFF</div>
-    <nav class="roles" id="roles" aria-label="Screen"></nav>
-    <span class="spacer"></span>
-    <span id="staffbar"></span>
-  </header>
-  <main class="main" id="view"></main>
-</div>
-<div id="overlay"></div>
-<div id="toast"></div>
-<script>
-const MENU = {"items":[{"i":1,"n":"Pani Puri","p":30,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":2,"n":"Bhel Puri","p":50,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":3,"n":"Sev Puri","p":60,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":4,"n":"Dahi Puri","p":60,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":5,"n":"Cheese Sev Puri","p":90,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":6,"n":"Corn Bhel","p":90,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":7,"n":"Cheese Corn Bhel","p":120,"c":"Chaat","s":"Puri & Bhel","k":"chaat","t":6},{"i":8,"n":"Dahi Papadi Chaat","p":70,"c":"Chaat","s":"Dahi & Papadi","k":"chaat","t":6},{"i":9,"n":"Dahi Bhalla","p":70,"c":"Chaat","s":"Dahi & Papadi","k":"chaat","t":6},{"i":10,"n":"Dahi Bhalla Papadi Chaat","p":90,"c":"Chaat","s":"Dahi & Papadi","k":"chaat","t":6},{"i":11,"n":"Aloo Tikki Chaat","p":80,"c":"Chaat","s":"Tikki & Baskets","k":"chaat","t":8},{"i":12,"n":"Basket Chaat","p":80,"c":"Chaat","s":"Tikki & Baskets","k":"chaat","t":8},{"i":13,"n":"Chatore Basket","p":120,"c":"Chaat","s":"Tikki & Baskets","k":"chaat","t":8},{"i":14,"n":"Chaat Platter","p":150,"c":"Chaat","s":"Tikki & Baskets","k":"chaat","t":8},{"i":15,"n":"Special Chatore Basket","p":150,"c":"Chaat","s":"Tikki & Baskets","k":"chaat","t":8,"g":1},{"i":16,"n":"Samosa","p":50,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":17,"n":"Chole Samosa","p":70,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":18,"n":"Samosa Chaat","p":70,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":19,"n":"Palak Patta Chaat","p":80,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":20,"n":"Potato Twister","p":80,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":21,"n":"Peri Peri Potato Twister","p":100,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8,"x":1},{"i":22,"n":"Cheese Potato Twister","p":120,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":23,"n":"Paneer Pakoda","p":120,"c":"Chaat","s":"Fried & Savoury","k":"chaat","t":8},{"i":24,"n":"Veg. Sandwich","p":90,"c":"Fast Food","s":"Sandwich","k":"wok","t":8},{"i":25,"n":"Veg. Cheese Sandwich","p":110,"c":"Fast Food","s":"Sandwich","k":"wok","t":8},{"i":26,"n":"Bombay Masala Sandwich","p":120,"c":"Fast Food","s":"Sandwich","k":"wok","t":8},{"i":27,"n":"Veg. Sandwich","p":120,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":28,"n":"Paneer Sandwich","p":150,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":29,"n":"Veg. Cheese Sandwich","p":160,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":30,"n":"Bombay Masala Sandwich","p":160,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":31,"n":"Corn Cheese Grill","p":160,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":32,"n":"Peri Peri Sandwich","p":180,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11,"x":1},{"i":33,"n":"Schezwan Sandwich","p":180,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11,"x":1},{"i":34,"n":"Paneer Cheese Sandwich","p":190,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":35,"n":"Paneer Tikka Sandwich","p":220,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":36,"n":"Pizza Sandwich","p":250,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":37,"n":"Club Sandwich","p":250,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11},{"i":38,"n":"DBC Special Sandwich","p":280,"c":"Fast Food","s":"Grilled Sandwich","k":"wok","t":11,"g":1},{"i":39,"n":"Aloo Masala","p":90,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":40,"n":"Veg. Cheese","p":110,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":41,"n":"Corn Cheese","p":120,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":42,"n":"Chilli Cheese","p":120,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9,"x":1},{"i":43,"n":"Paneer Cheese","p":140,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":44,"n":"Bombay Toast","p":140,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":45,"n":"Open Cheese","p":140,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":46,"n":"Pizza Toast","p":160,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":47,"n":"Bombay Cheese","p":180,"c":"Fast Food","s":"Toast Sandwich","k":"wok","t":9},{"i":48,"n":"Aloo Tikki Burger","p":80,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":49,"n":"Veg. Burger","p":100,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":50,"n":"Veg. Cheese Burger","p":130,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":51,"n":"Paneer Tikki Burger","p":150,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":52,"n":"Tandoori Paneer Burger","p":150,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":53,"n":"Hot N Cheese Peri Peri Burger","p":160,"c":"Fast Food","s":"Burger","k":"wok","t":10,"x":1},{"i":54,"n":"Double Patty Burger","p":190,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":55,"n":"Royal Aloo Paneer Burger","p":200,"c":"Fast Food","s":"Burger","k":"wok","t":10},{"i":56,"n":"Cheese Stuffed","p":180,"c":"Fast Food","s":"Stuffed Bread","k":"wok","t":12},{"i":57,"n":"Cheese Chilli","p":190,"c":"Fast Food","s":"Stuffed Bread","k":"wok","t":12,"x":1},{"i":58,"n":"Jalapeno","p":200,"c":"Fast Food","s":"Stuffed Bread","k":"wok","t":12,"x":1},{"i":59,"n":"American","p":210,"c":"Fast Food","s":"Stuffed Bread","k":"wok","t":12},{"i":60,"n":"Paneer Tikka","p":220,"c":"Fast Food","s":"Stuffed Bread","k":"wok","t":12},{"i":61,"n":"Supreme","p":230,"c":"Fast Food","s":"Stuffed Bread","k":"wok","t":12},{"i":62,"n":"Classic Garlic Bread","p":140,"c":"Fast Food","s":"Garlic Breads","k":"wok","t":10},{"i":63,"n":"Jain Bread","p":140,"c":"Fast Food","s":"Garlic Breads","k":"wok","t":10},{"i":64,"n":"Cheese Chilli Garlic Bread","p":150,"c":"Fast Food","s":"Garlic Breads","k":"wok","t":10,"x":1},{"i":65,"n":"Schezwan Garlic Bread","p":160,"c":"Fast Food","s":"Garlic Breads","k":"wok","t":10,"x":1},{"i":66,"n":"Supreme Garlic Bread","p":200,"c":"Fast Food","s":"Garlic Breads","k":"wok","t":10},{"i":67,"n":"Salted Fries","p":80,"c":"Fast Food","s":"Fries","k":"wok","t":8},{"i":68,"n":"Peri Peri Fries","p":100,"c":"Fast Food","s":"Fries","k":"wok","t":8,"x":1},{"i":69,"n":"Cheese Fries","p":120,"c":"Fast Food","s":"Fries","k":"wok","t":8},{"i":70,"n":"Tandoori Cheese Fries","p":140,"c":"Fast Food","s":"Fries","k":"wok","t":8},{"i":71,"n":"Regular Maggi","p":80,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":72,"n":"Double Masala Maggi","p":100,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":73,"n":"Schezwan Maggi","p":100,"c":"Fast Food","s":"Maggi","k":"wok","t":10,"x":1},{"i":74,"n":"Veggie Loaded Maggi","p":110,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":75,"n":"Cheese Maggi","p":120,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":76,"n":"Paneer Masala Maggi","p":120,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":77,"n":"Veg. Cheese Maggi","p":140,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":78,"n":"Corn N Cheese Maggi","p":140,"c":"Fast Food","s":"Maggi","k":"wok","t":10},{"i":79,"n":"Bread Butter","p":50,"c":"Fast Food","s":"Bread & Butter","k":"wok","t":4},{"i":80,"n":"Bread Butter Jam","p":80,"c":"Fast Food","s":"Bread & Butter","k":"wok","t":4},{"i":81,"n":"Bread Butter Nutella","p":100,"c":"Fast Food","s":"Bread & Butter","k":"wok","t":4},{"i":82,"n":"Vegetable Momo","p":120,"c":"Momo","s":"Steam Momo","k":"chaat","t":14},{"i":83,"n":"Peri Peri Spicy Veg. Momo","p":130,"c":"Momo","s":"Steam Momo","k":"chaat","t":14,"x":1},{"i":84,"n":"Paneer Momo","p":140,"c":"Momo","s":"Steam Momo","k":"chaat","t":14},{"i":85,"n":"Schezwan Vegetable Momo","p":140,"c":"Momo","s":"Steam Momo","k":"chaat","t":14,"x":1},{"i":86,"n":"Schezwan Paneer Momo","p":150,"c":"Momo","s":"Steam Momo","k":"chaat","t":14,"x":1},{"i":87,"n":"Peri Peri Spicy Paneer Momo","p":150,"c":"Momo","s":"Steam Momo","k":"chaat","t":14,"x":1},{"i":88,"n":"Spicy Chilli Paneer Momo","p":160,"c":"Momo","s":"Steam Momo","k":"chaat","t":14,"x":1},{"i":89,"n":"Paneer Butter Toast Momo","p":160,"c":"Momo","s":"Steam Momo","k":"chaat","t":14},{"i":90,"n":"Vegetable Momo","p":140,"c":"Momo","s":"Fried Momo","k":"chaat","t":14},{"i":91,"n":"Peri Peri Spicy Veg. Momo","p":150,"c":"Momo","s":"Fried Momo","k":"chaat","t":14,"x":1},{"i":92,"n":"Paneer Momo","p":160,"c":"Momo","s":"Fried Momo","k":"chaat","t":14},{"i":93,"n":"Schezwan Vegetable Momo","p":160,"c":"Momo","s":"Fried Momo","k":"chaat","t":14,"x":1},{"i":94,"n":"Schezwan Paneer Momo","p":170,"c":"Momo","s":"Fried Momo","k":"chaat","t":14,"x":1},{"i":95,"n":"Peri Peri Spicy Paneer Momo","p":170,"c":"Momo","s":"Fried Momo","k":"chaat","t":14,"x":1},{"i":96,"n":"Spicy Chilli Paneer Momo","p":180,"c":"Momo","s":"Fried Momo","k":"chaat","t":14,"x":1},{"i":97,"n":"Paneer Butter Toast Momo","p":180,"c":"Momo","s":"Fried Momo","k":"chaat","t":14},{"i":98,"n":"Kurkure Vegetable Momo","p":200,"c":"Momo","s":"Fried Momo","k":"chaat","t":14},{"i":99,"n":"Kurkure Paneer Momo","p":200,"c":"Momo","s":"Fried Momo","k":"chaat","t":14},{"i":100,"n":"Tandoori Veg. Momo","p":200,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":101,"n":"Banjara Veg. Momo","p":210,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":102,"n":"Tandoori Paneer Momo","p":220,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":103,"n":"Pahadi Veg. Momo","p":220,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":104,"n":"Banjara Paneer Momo","p":230,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":105,"n":"Afghani Veg. Momo","p":230,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":106,"n":"Pahadi Paneer Momo","p":240,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":107,"n":"Afghani Paneer Momo","p":250,"c":"Momo","s":"BBQ Momo","k":"tandoor","t":16},{"i":108,"n":"Veg. Manchow Soup","p":120,"c":"Chinese","s":"Soup","k":"wok","t":8,"x":1},{"i":109,"n":"Veg. Hot and Sour Soup","p":140,"c":"Chinese","s":"Soup","k":"wok","t":8,"x":1},{"i":110,"n":"Lemon Coriander Soup","p":150,"c":"Chinese","s":"Soup","k":"wok","t":8},{"i":111,"n":"Tom Yum Soup","p":170,"c":"Chinese","s":"Soup","k":"wok","t":8,"x":1},{"i":112,"n":"Burnt Garlic Soup","p":170,"c":"Chinese","s":"Soup","k":"wok","t":8},{"i":113,"n":"Thukpa Soup","p":170,"c":"Chinese","s":"Soup","k":"wok","t":8},{"i":114,"n":"Burmese Soup","p":210,"c":"Chinese","s":"Soup","k":"wok","t":8},{"i":115,"n":"Veg. Clear Soup","p":190,"c":"Chinese","s":"Lighter Choices","k":"wok","t":8},{"i":116,"n":"Exotic Salad","p":270,"c":"Chinese","s":"Lighter Choices","k":"wok","t":8},{"i":117,"n":"Manchurian Dry","p":150,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12},{"i":118,"n":"Schezwan Manchurian","p":170,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12,"x":1},{"i":119,"n":"Hot Garlic Manchurian","p":170,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12,"x":1},{"i":120,"n":"Dragon Potato","p":170,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12,"x":1},{"i":121,"n":"Honey Chilli Potato","p":170,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12,"x":1},{"i":122,"n":"Veg. Spring Rolls","p":170,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12},{"i":123,"n":"Veg. Crispy","p":180,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12},{"i":124,"n":"Crispy Chilli Baby Corn","p":220,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12,"x":1},{"i":125,"n":"Veg. Lollipop","p":220,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12},{"i":126,"n":"Mushroom Chilli Dry","p":260,"c":"Chinese","s":"Veg. Starter","k":"wok","t":12,"x":1},{"i":127,"n":"Paneer Manchurian","p":210,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14},{"i":128,"n":"Paneer Schezwan","p":230,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14,"x":1},{"i":129,"n":"Paneer Chilli Dry","p":240,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14,"x":1},{"i":130,"n":"Paneer Crispy","p":250,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14},{"i":131,"n":"Malaysian Paneer","p":270,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14},{"i":132,"n":"Shanghai Paneer","p":270,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14},{"i":133,"n":"Cottage Cheese Chilli Stick","p":270,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14,"x":1},{"i":134,"n":"Paneer Hunan Dry","p":270,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14,"x":1},{"i":135,"n":"Butter Garlic Paneer","p":270,"c":"Chinese","s":"Paneer Starter","k":"wok","t":14},{"i":136,"n":"Chilli Soya Chaap","p":220,"c":"Chinese","s":"Chaap","k":"wok","t":14,"x":1},{"i":137,"n":"Dragon Chaap","p":230,"c":"Chinese","s":"Chaap","k":"wok","t":14,"x":1},{"i":138,"n":"Chinese Bhel","p":200,"c":"Chinese","s":"Chinese Bhel","k":"wok","t":9},{"i":139,"n":"Bombay Bhel","p":200,"c":"Chinese","s":"Chinese Bhel","k":"wok","t":9},{"i":140,"n":"Taiwan Bhel","p":220,"c":"Chinese","s":"Chinese Bhel","k":"wok","t":9},{"i":141,"n":"Hakka Noodles","p":180,"c":"Chinese","s":"Noodles","k":"wok","t":13},{"i":142,"n":"Schezwan Noodles","p":190,"c":"Chinese","s":"Noodles","k":"wok","t":13,"x":1},{"i":143,"n":"Singapuri Noodles","p":200,"c":"Chinese","s":"Noodles","k":"wok","t":13},{"i":144,"n":"Manchurian Noodles","p":210,"c":"Chinese","s":"Noodles","k":"wok","t":13},{"i":145,"n":"Chilli Garlic Noodles","p":220,"c":"Chinese","s":"Noodles","k":"wok","t":13,"x":1},{"i":146,"n":"Chinese Noodles","p":220,"c":"Chinese","s":"Noodles","k":"wok","t":13},{"i":147,"n":"Taiwan Noodles","p":230,"c":"Chinese","s":"Noodles","k":"wok","t":13},{"i":148,"n":"Hunan Noodles","p":240,"c":"Chinese","s":"Noodles","k":"wok","t":13,"x":1},{"i":149,"n":"Burnt Garlic Noodles","p":250,"c":"Chinese","s":"Noodles","k":"wok","t":13},{"i":150,"n":"Veg. Fried Rice","p":180,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":151,"n":"Schezwan Fried Rice","p":190,"c":"Chinese","s":"Rice","k":"wok","t":13,"x":1},{"i":152,"n":"Manchurian Rice","p":190,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":153,"n":"Singapuri Rice","p":200,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":154,"n":"Chatpata Rice","p":220,"c":"Chinese","s":"Rice","k":"wok","t":13,"x":1},{"i":155,"n":"Shanghai Rice","p":250,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":156,"n":"Mushroom Bell Pepper Rice","p":250,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":157,"n":"Korean Rice","p":260,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":158,"n":"Taiwan Rice","p":260,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":159,"n":"Hong Kong Rice","p":270,"c":"Chinese","s":"Rice","k":"wok","t":13},{"i":160,"n":"Combination Rice — veggie gravy","p":280,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16},{"i":161,"n":"Triple Rice — Manchurian gravy","p":300,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16},{"i":162,"n":"Paneer Pot Rice — hot garlic sauce","p":300,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16,"x":1},{"i":163,"n":"Chilli Garlic Rice — Schezwan curry","p":300,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16,"x":1},{"i":164,"n":"Bell Pepper Rice — green curry","p":320,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16},{"i":165,"n":"Paneer Mongolian Rice — hot garlic curry","p":320,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16,"x":1},{"i":166,"n":"Burnt Garlic Rice — red curry","p":340,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16,"x":1},{"i":167,"n":"Shirpa Rice — Manchurian gravy","p":370,"c":"Chinese","s":"Rice & Gravy (meal for one)","k":"wok","t":16},{"i":168,"n":"Manchurian Gravy","p":150,"c":"Chinese","s":"Gravy (add to any rice or noodles)","k":"wok","t":13},{"i":169,"n":"Schezwan Manchurian Gravy","p":160,"c":"Chinese","s":"Gravy (add to any rice or noodles)","k":"wok","t":13,"x":1},{"i":170,"n":"Paneer Chilli Gravy","p":220,"c":"Chinese","s":"Gravy (add to any rice or noodles)","k":"wok","t":13,"x":1},{"i":171,"n":"Schezwan Paneer Gravy","p":230,"c":"Chinese","s":"Gravy (add to any rice or noodles)","k":"wok","t":13,"x":1},{"i":172,"n":"Chinese Blast Sizzler","p":520,"c":"Chinese","s":"Chinese Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Rice, noodles, mixed vegetables, french fries, paneer Manchurian, hot garlic sauce and tikki."},{"i":173,"n":"Paneer Shashlik Sizzler","p":550,"c":"Chinese","s":"Chinese Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Butter bell pepper rice, stir-fried vegetables, paneer stick, french fries, BBQ sauce, spring roll and tikki."},{"i":174,"n":"Mix Platter","p":570,"c":"Chinese","s":"Chinese Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Chilli garlic noodles, butter paneer, french fries, sautéed vegetables, pepper sauce, spring roll and tikki."},{"i":175,"n":"DBC Special Sizzler","p":590,"c":"Chinese","s":"Chinese Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Burnt garlic rice, stir-fried vegetables, french fries, butter paneer, spring roll, red curry and tikki.","g":1},{"i":176,"n":"Tandoori Chaap","p":250,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":177,"n":"Afghani Chaap","p":250,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":178,"n":"Banjara Chaap","p":250,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":179,"n":"Lehsuni Chaap","p":250,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":180,"n":"Malai Chaap","p":270,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":181,"n":"Pahadi Chaap","p":270,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":182,"n":"Achari Chaap","p":270,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":183,"n":"Angara Chaap","p":290,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18,"x":1},{"i":184,"n":"Basil Chaap","p":290,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18},{"i":185,"n":"DBC Special Chaap","p":310,"c":"Punjabi & Chaap","s":"Chaap Starter — Dry","k":"tandoor","t":18,"g":1},{"i":186,"n":"Tandoori Chaap","p":300,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":187,"n":"Afghani Chaap","p":300,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":188,"n":"Banjara Chaap","p":300,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":189,"n":"Lehsuni Chaap","p":300,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":190,"n":"Malai Chaap","p":320,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":191,"n":"Pahadi Chaap","p":320,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":192,"n":"Achari Chaap","p":320,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":193,"n":"Angara Chaap","p":340,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18,"x":1},{"i":194,"n":"Basil Chaap","p":340,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18},{"i":195,"n":"DBC Special Chaap","p":360,"c":"Punjabi & Chaap","s":"Chaap Starter — Semi Gravy","k":"tandoor","t":18,"g":1},{"i":196,"n":"Chaap Kathi Roll","p":140,"c":"Punjabi & Chaap","s":"Chaap Rolls","k":"tandoor","t":12},{"i":197,"n":"Chaap Tandoori Roll","p":160,"c":"Punjabi & Chaap","s":"Chaap Rolls","k":"tandoor","t":12},{"i":198,"n":"Karari Khakhra","p":150,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":199,"n":"Hara Bhara Kebab","p":240,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":200,"n":"Paneer Tikka","p":250,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":201,"n":"Tandoori Mushroom","p":260,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":202,"n":"Paneer Lasaniya Tikka","p":260,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":203,"n":"Veg. Seekh Kebab","p":260,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":204,"n":"Paneer Pahadi Tikka","p":280,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":205,"n":"Afghani Tikka","p":280,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":206,"n":"Paneer Banjara Tikka","p":290,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":207,"n":"Paneer Malai Tikka","p":300,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":208,"n":"Peri Peri Tikka","p":300,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18,"x":1},{"i":209,"n":"Kali Mirch Paneer Tikka","p":300,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18,"x":1},{"i":210,"n":"Cheese Seekh Kebab","p":300,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":211,"n":"Paneer Cheese Tikka","p":310,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":212,"n":"Basil Paneer Tikka","p":330,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":213,"n":"Sirkaji Tikka — stuffed","p":360,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18},{"i":214,"n":"DBC Special Paneer Tikka","p":380,"c":"Punjabi & Chaap","s":"Punjabi Starter","k":"tandoor","t":18,"g":1},{"i":215,"n":"Chole Bhature — 2 pcs bhature","p":160,"c":"Punjabi & Chaap","s":"Punjabi Combos","k":"tandoor","t":16},{"i":216,"n":"Paneer Chole Bhature — 2 pcs bhature","p":180,"c":"Punjabi & Chaap","s":"Punjabi Combos","k":"tandoor","t":16},{"i":217,"n":"Amritsari Kulcha — 1 pc + chole","p":220,"c":"Punjabi & Chaap","s":"Punjabi Combos","k":"tandoor","t":16},{"i":218,"n":"Chur Chur Naan & Chole","p":240,"c":"Punjabi & Chaap","s":"Punjabi Combos","k":"tandoor","t":16},{"i":219,"n":"Extra Bhature","p":50,"c":"Punjabi & Chaap","s":"Punjabi Combos","k":"tandoor","t":16},{"i":220,"n":"Extra Cheese","p":40,"c":"Punjabi & Chaap","s":"Punjabi Combos","k":"tandoor","t":16},{"i":221,"n":"Margherita Pizza","p":379,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, topped with herbs and spices."},{"i":222,"n":"Cheese N Corn Pizza","p":399,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, bell pepper and tomato."},{"i":223,"n":"4 Cheese Pizza","p":409,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, cream cheese and parmesan cheese, topped with herbs and spices."},{"i":224,"n":"Veg. Mexican Pizza","p":419,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, bell pepper, olives, jalapeno and sweet corn."},{"i":225,"n":"Golden Gate Pizza","p":429,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, mushroom and sweet corn."},{"i":226,"n":"Farmer Feast Pizza","p":439,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, bell pepper, green capsicum and baby corn."},{"i":227,"n":"Tandoori Paneer Tikka Pizza","p":449,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, green capsicum, paneer tikka, green chilli and coriander."},{"i":228,"n":"Peri Peri Paneer Pizza","p":459,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, bell pepper, peri peri marinated paneer and jalapeno.","x":1},{"i":229,"n":"BBQ Paneer Pizza","p":469,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, bell pepper, BBQ-marinated paneer, black olive and jalapeno."},{"i":230,"n":"Veggies Supreme Pizza","p":479,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, onion, bell pepper, mushroom, tomato, sweet corn and red paprika."},{"i":231,"n":"Veg. Exotica Pizza","p":479,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend, olives, onion, bell pepper, baby corn, tomato, jalapeno, broccoli and red paprika."},{"i":232,"n":"Choice Is Your Topping","p":499,"c":"Italian","s":"Pizza — 10 inches","k":"wok","t":22,"d":"Mozzarella and cheddar cheese blend and any 5 toppings of your choice."},{"i":233,"n":"Arrabbiata Pasta — red sauce","p":229,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Penne tossed in spicy fusion red sauce with golden corn and Italian herbs.","x":1},{"i":234,"n":"Alfredo Pasta — white sauce","p":239,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Penne tossed in authentic white sauce, cheese and fresh cream with golden corn and Italian herbs."},{"i":235,"n":"Pink Sauce Pasta","p":249,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Penne tossed in cheesy, creamy fusion pink sauce with golden corn and Italian herbs."},{"i":236,"n":"Red Cheese Pasta","p":249,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Tomato-based pasta enriched with melted cheese."},{"i":237,"n":"Mix Sauce Pasta","p":259,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"The creaminess of white sauce meets the tanginess of red sauce."},{"i":238,"n":"Pesto Pasta","p":269,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Penne with a coating of herbaceous, fresh basil pesto sauce."},{"i":239,"n":"Spaghetti Arrabbiata — red sauce","p":279,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Spaghetti tossed in spicy fusion red sauce with golden corn and Italian herbs.","x":1},{"i":240,"n":"Spaghetti Alfredo — white sauce","p":289,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Spaghetti tossed in authentic white sauce, cheese and fresh cream with golden corn and Italian herbs."},{"i":241,"n":"Spaghetti Pink Sauce","p":299,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Spaghetti tossed in cheesy, creamy fusion pink sauce with golden corn and Italian herbs."},{"i":242,"n":"Fettuccine Arrabbiata — red sauce","p":329,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Fettuccine tossed in spicy fusion red sauce with golden corn and Italian herbs.","x":1},{"i":243,"n":"Pesto Fettuccine","p":349,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Fettuccine with a coating of herbaceous, fresh basil pesto sauce."},{"i":244,"n":"Chef's Special Pasta","p":399,"c":"Italian","s":"Pasta","k":"wok","t":16,"d":"Ask your server what the kitchen is making today.","g":1},{"i":245,"n":"Veg. Cheese Lasagna","p":279,"c":"Italian","s":"Baked","k":"wok","t":20},{"i":246,"n":"Green Pesto Lasagna","p":289,"c":"Italian","s":"Baked","k":"wok","t":20},{"i":247,"n":"Mexican Cheese Lasagna","p":299,"c":"Italian","s":"Baked","k":"wok","t":20},{"i":248,"n":"Cheesy Loaded Pasta","p":309,"c":"Italian","s":"Baked","k":"wok","t":20},{"i":249,"n":"Mexican Tortilla Soup","p":149,"c":"Mexican","s":"Soups","k":"wok","t":8},{"i":250,"n":"Hot Bean Corn Soup","p":149,"c":"Mexican","s":"Soups","k":"wok","t":8},{"i":251,"n":"Roasted Tomato Cheese","p":159,"c":"Mexican","s":"Soups","k":"wok","t":8},{"i":252,"n":"Basil Celery","p":169,"c":"Mexican","s":"Soups","k":"wok","t":8},{"i":253,"n":"Cream of Broccoli","p":179,"c":"Mexican","s":"Soups","k":"wok","t":8},{"i":254,"n":"Cheesy Nachos with Salsa","p":150,"c":"Mexican","s":"Nachos","k":"wok","t":9},{"i":255,"n":"Corn Cheese Nachos","p":170,"c":"Mexican","s":"Nachos","k":"wok","t":9},{"i":256,"n":"Mexican Cheese Nachos","p":180,"c":"Mexican","s":"Nachos","k":"wok","t":9},{"i":257,"n":"Veg. Loaded Cheese Nachos","p":190,"c":"Mexican","s":"Nachos","k":"wok","t":9},{"i":258,"n":"Mexican Cheese Tacos","p":189,"c":"Mexican","s":"Tacos","k":"wok","t":10},{"i":259,"n":"Corn Cheese Tacos","p":189,"c":"Mexican","s":"Tacos","k":"wok","t":10},{"i":260,"n":"Mediterranean Tacos","p":199,"c":"Mexican","s":"Tacos","k":"wok","t":10},{"i":261,"n":"BBQ Cottage Cheese Quesadilla","p":209,"c":"Mexican","s":"Quesadilla","k":"wok","t":12},{"i":262,"n":"Mexican Cheese Quesadilla","p":219,"c":"Mexican","s":"Quesadilla","k":"wok","t":12},{"i":263,"n":"Exotic Veg. Cheese Quesadilla","p":229,"c":"Mexican","s":"Quesadilla","k":"wok","t":12},{"i":264,"n":"Aloo Tikki Wrap","p":139,"c":"Mexican","s":"Wrap","k":"wok","t":10},{"i":265,"n":"Veggie Delight Wrap","p":149,"c":"Mexican","s":"Wrap","k":"wok","t":10},{"i":266,"n":"Paneer Wrap","p":179,"c":"Mexican","s":"Wrap","k":"wok","t":10},{"i":267,"n":"Garlic Butter Wrap","p":179,"c":"Mexican","s":"Wrap","k":"wok","t":10},{"i":268,"n":"Burrito Wrap","p":189,"c":"Mexican","s":"Wrap","k":"wok","t":10},{"i":269,"n":"Mexican Cheese Burritos","p":249,"c":"Mexican","s":"Burritos","k":"wok","t":12},{"i":270,"n":"Corn Cheese Burritos","p":259,"c":"Mexican","s":"Burritos","k":"wok","t":12},{"i":271,"n":"Exotic Veg. Cheese Burritos","p":269,"c":"Mexican","s":"Burritos","k":"wok","t":12},{"i":272,"n":"Cottage Cheese Burritos","p":279,"c":"Mexican","s":"Burritos","k":"wok","t":12},{"i":273,"n":"Basil Creamy Rice","p":209,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":274,"n":"Mexican Rice","p":229,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":275,"n":"Burrito Rice Bowl","p":239,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":276,"n":"Peri Peri Cheese Rice","p":239,"c":"Mexican","s":"Rice","k":"wok","t":13,"x":1},{"i":277,"n":"Garlic Rice with Creamy Gravy","p":289,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":278,"n":"Green Thai Curry with Rice","p":299,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":279,"n":"Red Thai Curry with Rice","p":299,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":280,"n":"Yellow Thai Curry with Rice","p":309,"c":"Mexican","s":"Rice","k":"wok","t":13},{"i":281,"n":"Mexican Fajita","p":599,"c":"Mexican","s":"Mexican Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Mixed vegetables and paneer tossed with Mexican spices, spicy salsa, sour cream and nachos."},{"i":282,"n":"Pepper Cheese and Corn Pops","p":599,"c":"Mexican","s":"Mexican Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Corn cheese cutlet served on a bed of butter herbed rice with barbeque sauce."},{"i":283,"n":"Corn Cheese Cutlet","p":599,"c":"Mexican","s":"Mexican Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Corn cheese cutlet on a bed of butter herbed rice and assorted vegetables with french fries."},{"i":284,"n":"Mexican Bean Cheese","p":699,"c":"Mexican","s":"Mexican Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Sautéed refried beans tossed in hot chilli sauce, served on Mexican rice with assorted vegetables, cutlet and grated cheese."},{"i":285,"n":"The Italian Feast","p":699,"c":"Mexican","s":"Mexican Sizzlers — a full meal on one plate","k":"wok","t":25,"d":"Patty, cheese ball, rice, pasta, paneer and veggies."},{"i":286,"n":"Tea","p":30,"c":"Drinks & Shakes","s":"Hot Drinks","k":"chaat","t":4},{"i":287,"n":"Coffee","p":50,"c":"Drinks & Shakes","s":"Hot Drinks","k":"chaat","t":4},{"i":288,"n":"Green Tea","p":50,"c":"Drinks & Shakes","s":"Hot Drinks","k":"chaat","t":4},{"i":289,"n":"Lemon Tea","p":50,"c":"Drinks & Shakes","s":"Hot Drinks","k":"chaat","t":4},{"i":290,"n":"Hot Chocolate","p":100,"c":"Drinks & Shakes","s":"Hot Drinks","k":"chaat","t":4},{"i":291,"n":"Classic Cold Coffee","p":120,"c":"Drinks & Shakes","s":"Cold Coffee","k":"chaat","t":5},{"i":292,"n":"Chocolate Cold Coffee","p":140,"c":"Drinks & Shakes","s":"Cold Coffee","k":"chaat","t":5},{"i":293,"n":"Hazelnut Cold Coffee","p":150,"c":"Drinks & Shakes","s":"Cold Coffee","k":"chaat","t":5},{"i":294,"n":"Caramel Cold Coffee","p":150,"c":"Drinks & Shakes","s":"Cold Coffee","k":"chaat","t":5},{"i":295,"n":"Kit Kat Shake","p":120,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":296,"n":"Oreo Shake","p":120,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":297,"n":"Strawberry Shake","p":120,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":298,"n":"Choco Pie Shake","p":120,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":299,"n":"Biscoff Shake","p":140,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":300,"n":"Nutella Shake","p":140,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":301,"n":"Brownie Shake","p":150,"c":"Drinks & Shakes","s":"Thick Shakes","k":"chaat","t":5},{"i":302,"n":"Mint Mojito","p":90,"c":"Drinks & Shakes","s":"Mocktails & Coolers","k":"chaat","t":5},{"i":303,"n":"Blue Lagoon","p":100,"c":"Drinks & Shakes","s":"Mocktails & Coolers","k":"chaat","t":5},{"i":304,"n":"Cranberry Sparkle","p":100,"c":"Drinks & Shakes","s":"Mocktails & Coolers","k":"chaat","t":5},{"i":305,"n":"Strawberry Switzer","p":110,"c":"Drinks & Shakes","s":"Mocktails & Coolers","k":"chaat","t":5},{"i":306,"n":"Guava Punch","p":120,"c":"Drinks & Shakes","s":"Mocktails & Coolers","k":"chaat","t":5}],"cats":[{"n":"Chaat","tag":"Street-style, made to order","subs":["Puri & Bhel","Dahi & Papadi","Tikki & Baskets","Fried & Savoury"]},{"n":"Fast Food","tag":"Sandwiches, burgers, fries & Maggi","subs":["Sandwich","Grilled Sandwich","Toast Sandwich","Burger","Stuffed Bread","Garlic Breads","Fries","Maggi","Bread & Butter"]},{"n":"Momo","tag":"Steamed, fried or off the tandoor","subs":["Steam Momo","Fried Momo","BBQ Momo"]},{"n":"Chinese","tag":"No Ajinomoto — ever","subs":["Soup","Lighter Choices","Veg. Starter","Paneer Starter","Chaap","Chinese Bhel","Noodles","Rice","Rice & Gravy (meal for one)","Gravy (add to any rice or noodles)","Chinese Sizzlers — a full meal on one plate"]},{"n":"Punjabi & Chaap","tag":"From the tandoor","subs":["Chaap Starter — Dry","Chaap Starter — Semi Gravy","Chaap Rolls","Punjabi Starter","Punjabi Combos"]},{"n":"Italian","tag":"Pizza, pasta and baked","subs":["Pizza — 10 inches","Pasta","Baked"]},{"n":"Mexican","tag":"Nachos, tacos, burritos & sizzlers","subs":["Soups","Nachos","Tacos","Quesadilla","Wrap","Burritos","Rice","Mexican Sizzlers — a full meal on one plate"]},{"n":"Drinks & Shakes","tag":"Hot, cold and everything between","subs":["Hot Drinks","Cold Coffee","Thick Shakes","Mocktails & Coolers"]}],"routing":{"Chaat|Puri & Bhel":"chaat","Chaat|Dahi & Papadi":"chaat","Chaat|Tikki & Baskets":"chaat","Chaat|Fried & Savoury":"chaat","Fast Food|Sandwich":"wok","Fast Food|Grilled Sandwich":"wok","Fast Food|Toast Sandwich":"wok","Fast Food|Burger":"wok","Fast Food|Stuffed Bread":"wok","Fast Food|Garlic Breads":"wok","Fast Food|Fries":"wok","Fast Food|Maggi":"wok","Fast Food|Bread & Butter":"wok","Momo|Steam Momo":"chaat","Momo|Fried Momo":"chaat","Momo|BBQ Momo":"tandoor","Chinese|Soup":"wok","Chinese|Lighter Choices":"wok","Chinese|Veg. Starter":"wok","Chinese|Paneer Starter":"wok","Chinese|Chaap":"wok","Chinese|Chinese Bhel":"wok","Chinese|Noodles":"wok","Chinese|Rice":"wok","Chinese|Rice & Gravy (meal for one)":"wok","Chinese|Gravy (add to any rice or noodles)":"wok","Chinese|Chinese Sizzlers — a full meal on one plate":"wok","Punjabi & Chaap|Chaap Starter — Dry":"tandoor","Punjabi & Chaap|Chaap Starter — Semi Gravy":"tandoor","Punjabi & Chaap|Chaap Rolls":"tandoor","Punjabi & Chaap|Punjabi Starter":"tandoor","Punjabi & Chaap|Punjabi Combos":"tandoor","Italian|Pizza — 10 inches":"wok","Italian|Pasta":"wok","Italian|Baked":"wok","Mexican|Soups":"wok","Mexican|Nachos":"wok","Mexican|Tacos":"wok","Mexican|Quesadilla":"wok","Mexican|Wrap":"wok","Mexican|Burritos":"wok","Mexican|Rice":"wok","Mexican|Mexican Sizzlers — a full meal on one plate":"wok","Drinks & Shakes|Hot Drinks":"chaat","Drinks & Shakes|Cold Coffee":"chaat","Drinks & Shakes|Thick Shakes":"chaat","Drinks & Shakes|Mocktails & Coolers":"chaat"},"notes":{"Italian":["Cheese burst base — ₹100 extra on any pizza.","Every pizza is 10 inches and made to order, so give the kitchen a few minutes."]}};
-
-/* ---------------------------------------------------------------- *
- * Shared order book. Both apps use the same storage key and channel,
- * so they stay in step whenever they are served from one origin.
- * ---------------------------------------------------------------- */
-const STATIONS = {
-  wok:     {name:"Chinese & Bread", icon:"\u{1F373}", color:"var(--st-wok)",
-            covers:"Chinese, Italian, Fast Food, Mexican"},
-  tandoor: {name:"Tandoor",         icon:"\u{1F525}", color:"var(--st-tandoor)",
-            covers:"Punjabi, Chaap, BBQ Momo"},
-  chaat:   {name:"Chaat",           icon:"\u{1F957}", color:"var(--st-chaat)",
-            covers:"Chaat, Steam & Fried Momo, Drinks"}
-};
-const STATUS = {received:"Order received", cooking:"Cooking", ready:"Ready to serve"};
-const KEY = "dbc.pos.v1";
-
-let S = {orders:[], feedback:[], routing:{}, seq:0, pin:"1234"};
-let chan = null;
-
-function load(){
-  try{
-    const raw = localStorage.getItem(KEY);
-    if(raw) S = Object.assign({orders:[],feedback:[],routing:{},seq:0,pin:"1234"}, JSON.parse(raw));
-  }catch(e){ /* corrupted or unavailable storage: start clean */ }
-}
-function save(broadcast){
-  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
-  if(broadcast !== false && chan){ try{ chan.postMessage({t:"sync", s:S}); }catch(e){} }
-  render();
-}
-function adopt(next){
-  S = next;
-  const el = document.activeElement;
-  const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
-  if(!typing) render();
-}
-try{
-  chan = new BroadcastChannel("dbc-pos");
-  chan.onmessage = ev => { if(ev.data && ev.data.t === "sync") adopt(ev.data.s); };
-}catch(e){ chan = null; }
-window.addEventListener("storage", ev => {
-  if(ev.key === KEY && ev.newValue){
-    try{ adopt(JSON.parse(ev.newValue)); }catch(e){}
-  }
-});
-
-const $ = s => document.querySelector(s);
-const money = n => "\u20B9" + Math.round(n);
-const esc = s => String(s).replace(/[&<>"']/g, c =>
-  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const mins = ts => Math.max(0, Math.floor((Date.now() - ts) / 60000));
-const stationOf = it => S.routing[it.c + "|" + it.s] || MENU.routing[it.c + "|" + it.s] || "wok";
-const orderStations = o => [...new Set(o.items.map(i => i.k))];
-const isToday = ts => new Date(ts).toDateString() === new Date().toDateString();
-function orderStatus(o){
-  if(o.served) return "served";
-  const st = orderStations(o).map(k => o.tickets[k].status);
-  if(st.every(s => s === "ready")) return "ready";
-  if(st.some(s => s === "cooking")) return "cooking";
-  return "received";
-}
-function toast(msg){
-  const t = $("#toast");
-  t.innerHTML = '<div class="toast">' + esc(msg) + "</div>";
-  clearTimeout(toast._h);
-  toast._h = setTimeout(() => { t.innerHTML = ""; }, 2600);
-}
-function syncTopbar(){
-  const tb = document.querySelector(".topbar");
-  if(tb) document.documentElement.style.setProperty("--topbar-h", tb.getBoundingClientRect().height + "px");
-}
-window.addEventListener("resize", syncTopbar);
-try{ new ResizeObserver(syncTopbar).observe(document.querySelector(".topbar")); }catch(e){}
-
-
 let DEV = {staff:false, role:null};
 try{ DEV = Object.assign(DEV, JSON.parse(localStorage.getItem("dbc.device") || "{}")); }catch(e){}
 function keepDevice(){
   try{ localStorage.setItem("dbc.device", JSON.stringify(DEV)); }catch(e){}
 }
 
-let UI = {role:DEV.role || "admin", adminTab:"live", sheet:null, pinErr:false};
+let UI = {role:DEV.role || "admin", adminTab:"live", kview:"tickets", sheet:null, pinErr:false};
 
 function advance(orderId, station){
   const o = S.orders.find(x => x.id === orderId);
@@ -1309,15 +458,23 @@ function vKitchen(k){
         <div class="kcount"><b class="num">${counts.received}</b><span>New</span></div>
         <div class="kcount"><b class="num">${counts.cooking}</b><span>Cooking</span></div>
         <div class="kcount"><b class="num">${counts.ready}</b><span>Ready</span></div>
+        <button class="voicebtn ${VOICE.on ? "on" : ""}" data-act="voice"
+          title="${esc(voiceLabel())}" aria-pressed="${VOICE.on}">
+          ${VOICE.on ? "&#128266;" : "&#128263;"} <span>${VOICE.on ? "Voice on" : "Voice off"}</span></button>
       </div>
     </div>
-    ${live.length || ready.length ? "" :
+    <div class="rail" style="margin:-4px 0 14px">
+      <button class="chip" data-act="kview" data-v="tickets" aria-pressed="${UI.kview === "tickets"}">Orders</button>
+      <button class="chip" data-act="kview" data-v="menu" aria-pressed="${UI.kview === "menu"}">This kitchen's menu</button>
+    </div>
+    ${UI.kview === "menu" ? kitchenMenu(k) : ""}
+    ${UI.kview === "menu" ? "" : (live.length || ready.length ? "" :
       `<div class="empty">No orders for this kitchen right now.<br>
-       <span style="font-size:12.5px">New tickets appear here the moment a customer orders.</span></div>`}
-    <div class="tickets">
+       <span style="font-size:12.5px">New tickets appear here the moment a customer orders.</span></div>`)}
+    ${UI.kview === "menu" ? "" : `<div class="tickets">
       ${live.map(o => chit(o, k)).join("")}
       ${ready.map(o => chit(o, k)).join("")}
-    </div>
+    </div>`}
   </div>`;
 }
 function chit(o, k){
@@ -1414,6 +571,21 @@ function vAdmin(){
       <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
         This keeps customers out of the wrong screens. It is not bank-grade security — anyone
         who digs into the page source can read it, so don't reuse a PIN that protects money.</p>
+    </div></div>
+
+    <div class="panel" style="margin-top:16px"><h3>Spoken order alerts</h3><div class="pad">
+      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
+        Each kitchen tablet can chime and read new orders out in Hindi. Turn it on with the
+        speaker button on that kitchen's screen — it has to be switched on once per tablet,
+        because browsers block sound until someone asks for it.</p>
+      <div class="srow"><span>Voice on this device</span><span>${VOICE.on ? "On" : "Off"}</span></div>
+      <div class="srow"><span>Voice being used</span>
+        <span style="text-align:right">${esc(voiceLabel())}</span></div>
+      <button class="btn btn-sm" style="margin-top:12px" data-act="testvoice">Play a test announcement</button>
+      <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
+        If it stays silent, this device has no Hindi voice installed. On Android add it under
+        Settings &rsaquo; Text-to-speech; on iPad under Settings &rsaquo; Accessibility
+        &rsaquo; Spoken Content &rsaquo; Voices &rsaquo; Hindi.</p>
     </div></div>
 
     ${connPanel()}
@@ -1547,6 +719,139 @@ function seed(){
   toast("3 sample orders sent to the kitchens");
 }
 
+/* ---------------------------------------------------------------- *
+ * Spoken order alerts. A chime, then the order read out in Hindi.
+ * Browsers block audio until the user asks for it, so the cook taps
+ * the speaker button once per tablet and it is remembered after that.
+ * ---------------------------------------------------------------- */
+let VOICE = {on:false, voice:null};
+try{ VOICE.on = localStorage.getItem("dbc.voice") === "1"; }catch(e){}
+
+let spoken = new Set();
+try{ spoken = new Set(JSON.parse(sessionStorage.getItem("dbc.spoken") || "[]")); }catch(e){}
+function rememberSpoken(){
+  try{ sessionStorage.setItem("dbc.spoken", JSON.stringify([...spoken])); }catch(e){}
+}
+
+const canSpeak = () => typeof window !== "undefined" && "speechSynthesis" in window;
+function pickVoice(){
+  if(!canSpeak()) return null;
+  const vs = window.speechSynthesis.getVoices() || [];
+  return vs.find(v => v.lang === "hi-IN")
+      || vs.find(v => /^hi(-|_|$)/i.test(v.lang))
+      || vs.find(v => v.lang === "en-IN")
+      || null;
+}
+if(canSpeak()){
+  VOICE.voice = pickVoice();
+  window.speechSynthesis.onvoiceschanged = () => {
+    const found = pickVoice();
+    if(found && found !== VOICE.voice){ VOICE.voice = found; render(); }
+  };
+}
+function voiceLabel(){
+  if(!canSpeak()) return "This browser cannot speak";
+  if(!VOICE.voice) return "Hindi voice not installed on this device";
+  return VOICE.voice.name + " (" + VOICE.voice.lang + ")";
+}
+
+/* short chime so a busy kitchen looks up before the words start */
+function chime(){
+  try{
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return;
+    const ac = new Ctx();
+    [880, 1320].forEach((hz, n) => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = "sine"; o.frequency.value = hz;
+      o.connect(g); g.connect(ac.destination);
+      const t0 = ac.currentTime + n * 0.16;
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(0.3, t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.22);
+      o.start(t0); o.stop(t0 + 0.24);
+    });
+  }catch(e){}
+}
+
+/* "नया ऑर्डर। टेबल 7। प्रिया। 2 Paneer Tikka।" */
+function orderSpeech(o, k){
+  const where = o.table === "parcel" ? "पार्सल ऑर्डर" : "टेबल " + o.table;
+  const who = (o.name && o.name !== "Guest") ? o.name + "। " : "";
+  const lines = o.items.filter(i => i.k === k)
+    .map(i => i.qty + " " + i.n + (i.mods && i.mods.length ? "। " + i.mods.join("। ") : ""));
+  return "नया ऑर्डर। " + where + "। " + who + lines.join("। ") + "।";
+}
+function say(text){
+  if(!canSpeak()) return;
+  try{
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "hi-IN";
+    if(VOICE.voice) u.voice = VOICE.voice;
+    u.rate = 0.92;
+    window.speechSynthesis.speak(u);
+  }catch(e){}
+}
+function speakOrder(o, k){
+  chime();
+  setTimeout(() => say(orderSpeech(o, k)), 420);
+}
+
+/* Announce only tickets this station has not heard yet. */
+function announceNew(){
+  if(!VOICE.on || !DEV.staff || !UI.role.startsWith("k:")) return;
+  const k = UI.role.slice(2);
+  S.orders.forEach(o => {
+    const t = o.tickets[k];
+    if(!t || t.status !== "received") return;
+    const tag = o.id + "|" + k;
+    if(spoken.has(tag)) return;
+    spoken.add(tag);
+    rememberSpoken();
+    speakOrder(o, k);
+  });
+}
+/* On first load, treat everything already waiting as heard, so opening
+   the page does not read out the whole board at once. */
+function seedSpoken(){
+  S.orders.forEach(o => Object.keys(o.tickets).forEach(k => spoken.add(o.id + "|" + k)));
+  rememberSpoken();
+}
+function toggleVoice(){
+  VOICE.on = !VOICE.on;
+  try{ localStorage.setItem("dbc.voice", VOICE.on ? "1" : "0"); }catch(e){}
+  if(VOICE.on){
+    VOICE.voice = VOICE.voice || pickVoice();
+    chime();
+    setTimeout(() => say("आवाज़ चालू है। नए ऑर्डर बोलकर बताए जाएंगे।"), 420);
+  } else if(canSpeak()){
+    try{ window.speechSynthesis.cancel(); }catch(e){}
+  }
+  render();
+}
+
+/* Items this kitchen is responsible for, grouped the way the menu reads. */
+function kitchenMenu(k){
+  const mine = MENU.items.filter(it => stationOf(it) === k);
+  const groups = [];
+  mine.forEach(it => {
+    const key = it.c + " · " + it.s;
+    let g = groups.find(x => x.k === key);
+    if(!g){ g = {k:key, items:[]}; groups.push(g); }
+    g.items.push(it);
+  });
+  return `<div class="panel"><h3>What this kitchen cooks
+      <span class="eyebrow">${mine.length} dishes</span></h3>
+    <div class="pad">
+      ${groups.map(g => `<div class="kmenu-sec">
+        <h4>${esc(g.k)}</h4>
+        ${g.items.map(it => `<div class="kmenu-row">
+          <span>${esc(it.n)}${it.x ? ' <span class="flame">&#9679;&#9679;</span>' : ""}</span>
+          <b class="num">${money(it.p)}</b></div>`).join("")}
+      </div>`).join("")}
+    </div></div>`;
+}
+
 function connPanel(){
   let ok = true;
   try{ localStorage.setItem("_probe", "1"); localStorage.removeItem("_probe"); }
@@ -1588,6 +893,7 @@ function render(){
     $("#view").innerHTML = vAdmin();
   }
   $("#overlay").innerHTML = UI.sheet === "pin" ? sheetPin() : "";
+  announceNew();
 }
 
 document.addEventListener("click", ev => {
@@ -1617,6 +923,16 @@ document.addEventListener("click", ev => {
     case "back": stepBack(v, el.dataset.k); break;
     case "served": markServed(v); break;
     case "atab": UI.adminTab = v; render(); break;
+    case "kview": UI.kview = v; render(); break;
+    case "voice": toggleVoice(); break;
+    case "testvoice": {
+      VOICE.voice = VOICE.voice || pickVoice();
+      const demo = {id:"TEST", table:7, name:"Priya",
+        items:[{n:"Paneer Tikka", qty:2, k:"tandoor", mods:["Less spicy"]}],
+        tickets:{tandoor:{status:"received"}}};
+      speakOrder(demo, "tandoor");
+      break;
+    }
     case "seed": seed(); break;
     case "clear": S.orders = []; S.feedback = []; save(); toast("Cleared"); break;
     case "setpin": {
@@ -1644,6 +960,7 @@ setInterval(() => {
 }, 20000);
 
 load();
+seedSpoken();
 render();
 syncTopbar();
 
