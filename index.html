@@ -138,6 +138,10 @@ input,select,textarea{font-family:inherit;font-size:inherit;color:var(--ink)}
 .tablegrid button[aria-pressed="true"]{background:var(--saffron);border-color:var(--saffron);color:var(--on-accent)}
 .tablegrid button.wide{grid-column:span 2;font-size:14px}
 
+.tablelock{display:flex;align-items:center;gap:8px;padding:7px 13px;margin-bottom:9px;
+  border-radius:999px;background:color-mix(in srgb,var(--ok) 12%,var(--surface));
+  border:1.5px solid color-mix(in srgb,var(--ok) 45%,transparent);font-size:12.5px;color:var(--ok)}
+.tablelock b{font-weight:750}
 .menubar{position:sticky;top:var(--topbar-h,47px);z-index:30;background:var(--bg);
   border-bottom:1px solid var(--line);padding:10px 16px 8px}
 .search{display:flex;align-items:center;gap:9px;background:var(--surface);
@@ -302,16 +306,17 @@ input,select,textarea{font-family:inherit;font-size:inherit;color:var(--ink)}
 .bill-foot b{font-size:12px;color:var(--ink-2);margin-top:3px}
 
 @media print{
-  @page{margin:6mm}
-  body{background:#fff!important}
-  .topbar,.noprint,#overlay,#toast,.tiles,.rail{display:none!important}
-  .wrap{padding:0!important;max-width:none!important}
-  .bill-sheet{border:0;box-shadow:none;border-radius:0;padding:0;max-width:none;width:auto;
-    color:#000;background:#fff}
-  .bill-head b,.bill-tot.grand,.bill-foot b{color:#000}
-  .bill-head span,.bill-meta,.bill-mod,.bill-foot{color:#333}
-  .bill-tbl td,.bill-tbl th{border-color:#999}
-  .bill-tot.grand{border-top:1.5px solid #000}
+  @page{size:auto;margin:8mm}
+  html,body{background:#fff!important}
+  /* only the receipt reaches the paper */
+  body *{visibility:hidden!important}
+  #billsheet,#billsheet *{visibility:visible!important}
+  #billsheet{position:absolute!important;left:0;top:0;width:auto;max-width:none;
+    border:0;box-shadow:none;border-radius:0;padding:0;margin:0;color:#000;background:#fff}
+  #billsheet .bill-head b,#billsheet .bill-tot.grand,#billsheet .bill-foot b{color:#000}
+  #billsheet .bill-head span,#billsheet .bill-meta,#billsheet .bill-mod,#billsheet .bill-foot{color:#333}
+  #billsheet .bill-tbl td,#billsheet .bill-tbl th{border-color:#999}
+  #billsheet .bill-tot.grand{border-top:1.5px solid #000}
 }
 .voicebtn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:var(--r-sm);
   border:1.5px solid var(--line-2);background:var(--surface);font-size:12.5px;font-weight:700;
@@ -453,6 +458,117 @@ function syncTopbar(){
   const tb = document.querySelector(".topbar");
   if(tb) document.documentElement.style.setProperty("--topbar-h", tb.getBoundingClientRect().height + "px");
 }
+
+/* ---------------------------------------------------------------- *
+ * Shared order book on the internet.
+ *
+ * Fill CLOUD in and every phone, tablet and counter screen works from
+ * one list, wherever they are. Leave it blank and the app still runs,
+ * but each device keeps its own orders (useful for a demo).
+ *
+ * The anon key below is Supabase's public client key. It is designed
+ * to sit in a web page — it is not a password, and it cannot read
+ * anything the table policy does not allow.
+ * ---------------------------------------------------------------- */
+const CLOUD = {
+  url: "https://ynbnnihyycgqwanunusk.supabase.co",
+  key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
+  table: "dbc_state",
+  row: 1,
+  pollMs: 2000
+};
+try{
+  const saved = JSON.parse(localStorage.getItem("dbc.cloud") || "{}");
+  if(saved.url && saved.key){ CLOUD.url = saved.url; CLOUD.key = saved.key; }
+}catch(e){}
+
+const cloudOn = () => !!(CLOUD.url && CLOUD.key);
+let CLOUDSTATE = {ok:null, last:0, error:"", busy:false};
+
+function cloudHeaders(){
+  return {
+    "apikey": CLOUD.key,
+    "Authorization": "Bearer " + CLOUD.key,
+    "Content-Type": "application/json"
+  };
+}
+function cloudEndpoint(){
+  return CLOUD.url.replace(/\/+$/, "") + "/rest/v1/" + CLOUD.table
+       + "?id=eq." + CLOUD.row;
+}
+
+/* Pull the shared book; adopt it when it is newer than what we hold. */
+async function cloudPull(){
+  if(!cloudOn() || CLOUDSTATE.busy) return;
+  try{
+    const r = await fetch(cloudEndpoint() + "&select=data", {headers: cloudHeaders()});
+    if(!r.ok){ throw new Error("HTTP " + r.status + " " + (await r.text()).slice(0, 120)); }
+    const rows = await r.json();
+    CLOUDSTATE.ok = true; CLOUDSTATE.error = ""; CLOUDSTATE.last = Date.now();
+    if(!rows.length || !rows[0].data) return;
+    const remote = rows[0].data;
+    if((remote.rev || 0) > (S.rev || 0)){
+      S = Object.assign({orders:[], feedback:[], routing:{}, seq:0, pin:"1234", rev:0}, remote);
+      try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
+      const el = document.activeElement;
+      const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
+      if(!typing) render();
+    }
+  }catch(err){
+    CLOUDSTATE.ok = false; CLOUDSTATE.error = String(err.message || err);
+  }
+}
+
+/* Push our copy up. Called straight after every local change. */
+async function cloudPush(){
+  if(!cloudOn()) return;
+  CLOUDSTATE.busy = true;
+  try{
+    const r = await fetch(cloudEndpoint(), {
+      method: "PATCH",
+      headers: Object.assign(cloudHeaders(), {"Prefer": "return=minimal"}),
+      body: JSON.stringify({data: S})
+    });
+    if(!r.ok){ throw new Error("HTTP " + r.status + " " + (await r.text()).slice(0, 120)); }
+    CLOUDSTATE.ok = true; CLOUDSTATE.error = ""; CLOUDSTATE.last = Date.now();
+  }catch(err){
+    CLOUDSTATE.ok = false; CLOUDSTATE.error = String(err.message || err);
+  }finally{
+    CLOUDSTATE.busy = false;
+  }
+}
+
+/* One full round trip, used by the Test connection button. */
+async function cloudTest(){
+  if(!cloudOn()) return {ok:false, msg:"No address and key saved yet."};
+  try{
+    const r = await fetch(cloudEndpoint() + "&select=id", {headers: cloudHeaders()});
+    const body = await r.text();
+    if(r.status === 404) return {ok:false, msg:'Table "' + CLOUD.table + '" not found. Run the setup SQL first.'};
+    if(r.status === 401 || r.status === 403) return {ok:false, msg:"Key rejected. Check the anon public key, and that the table policy allows access."};
+    if(!r.ok) return {ok:false, msg:"HTTP " + r.status + " — " + body.slice(0, 140)};
+    const rows = JSON.parse(body || "[]");
+    if(!rows.length) return {ok:false, msg:"Connected, but row " + CLOUD.row + " is missing. Run the setup SQL insert."};
+    await cloudPush();
+    if(!CLOUDSTATE.ok) return {ok:false, msg:"Could read but not write: " + CLOUDSTATE.error};
+    return {ok:true, msg:"Connected. Reading and writing fine."};
+  }catch(err){
+    return {ok:false, msg:"Could not reach it: " + String(err.message || err)};
+  }
+}
+
+if(cloudOn()){
+  cloudPull();
+  setInterval(cloudPull, CLOUD.pollMs);
+}
+
+/* every local change bumps the revision and goes up to the shared book */
+const _localSave = save;
+save = function(broadcast){
+  S.rev = (S.rev || 0) + 1;
+  _localSave(broadcast);
+  cloudPush();
+};
 window.addEventListener("resize", syncTopbar);
 try{ new ResizeObserver(syncTopbar).observe(document.querySelector(".topbar")); }catch(e){}
 
@@ -637,6 +753,8 @@ function vAdmin(){
         Settings &rsaquo; Text-to-speech; on iPad under Settings &rsaquo; Accessibility
         &rsaquo; Spoken Content &rsaquo; Voices &rsaquo; Hindi.</p>
     </div></div>
+
+    ${cloudPanel()}
 
     ${connPanel()}
   </div>`;
@@ -1018,6 +1136,38 @@ function vBill(tbl){
     </div>`;
 }
 
+function cloudPanel(){
+  const on = cloudOn();
+  const state = !on ? "Not set up — each device keeps its own orders"
+    : (CLOUDSTATE.ok === true ? "Connected"
+    : CLOUDSTATE.ok === false ? "Problem: " + esc(CLOUDSTATE.error)
+    : "Checking…");
+  return `<div class="panel" style="margin-top:16px"><h3>Orders across devices</h3><div class="pad">
+    <div class="srow"><span>Status</span>
+      <span style="text-align:right;font-weight:700;color:${on && CLOUDSTATE.ok ? "var(--ok)" : on ? "var(--ember)" : "var(--muted)"}">${state}</span></div>
+    ${on ? `<div class="srow"><span>Shared book</span>
+      <span class="mono" style="font-size:11px">${esc(CLOUD.url)}</span></div>` : ""}
+    <p style="font-size:13px;color:var(--muted);margin:12px 0 10px">
+      Paste the two values from your Supabase project. Every device needs them once, or ask
+      for them to be built into the files so phones work straight from the QR code.</p>
+    <div class="field" style="margin-bottom:9px">
+      <label for="curl">Project URL</label>
+      <input id="curl" placeholder="https://xxxxxxxx.supabase.co" value="${esc(CLOUD.url)}">
+    </div>
+    <div class="field" style="margin-bottom:11px">
+      <label for="ckey">Anon public key</label>
+      <input id="ckey" placeholder="eyJhbGciOi..." value="${esc(CLOUD.key)}">
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-sm" data-act="cloudsave">Save</button>
+      <button class="btn btn-sm btn-ghost" data-act="cloudtest">Test connection</button>
+      <button class="btn btn-sm btn-ghost" data-act="cloudclear">Disconnect</button>
+    </div>
+    ${UI.cloudMsg ? `<p style="font-size:12.5px;font-weight:650;margin:11px 0 0;
+      color:${UI.cloudOk ? "var(--ok)" : "var(--ember)"}">${esc(UI.cloudMsg)}</p>` : ""}
+  </div></div>`;
+}
+
 function connPanel(){
   let ok = true;
   try{ localStorage.setItem("_probe", "1"); localStorage.removeItem("_probe"); }
@@ -1093,6 +1243,31 @@ document.addEventListener("click", ev => {
     case "tables": UI.billTable = null; render(); break;
     case "settle": settleTable(v === "parcel" ? "parcel" : Number(v)); break;
     case "print": window.print(); break;
+    case "cloudsave": {
+      const u = ($("#curl").value || "").trim().replace(/\/+$/, "");
+      const k = ($("#ckey").value || "").trim();
+      CLOUD.url = u; CLOUD.key = k;
+      try{ localStorage.setItem("dbc.cloud", JSON.stringify({url:u, key:k})); }catch(e){}
+      UI.cloudMsg = u && k ? "Saved on this device. Now press Test connection."
+                           : "Cleared — this device is back to its own order list.";
+      UI.cloudOk = !!(u && k);
+      render();
+      break;
+    }
+    case "cloudtest": {
+      UI.cloudMsg = "Testing…"; UI.cloudOk = true; render();
+      cloudTest().then(function(res){
+        UI.cloudMsg = res.msg; UI.cloudOk = res.ok; render();
+      });
+      break;
+    }
+    case "cloudclear": {
+      CLOUD.url = ""; CLOUD.key = "";
+      try{ localStorage.removeItem("dbc.cloud"); }catch(e){}
+      UI.cloudMsg = "Disconnected on this device."; UI.cloudOk = false;
+      render();
+      break;
+    }
     case "kview": UI.kview = v; render(); break;
     case "voice": toggleVoice(); break;
     case "testvoice": {
