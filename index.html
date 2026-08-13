@@ -269,6 +269,11 @@ input,select,textarea{font-family:inherit;font-size:inherit;color:var(--ink)}
 
 /* ---------- admin ---------- */
 /* ---- tables & bills ---- */
+.neverlist{display:flex;flex-wrap:wrap;gap:6px}
+.nevertag{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;
+  border:1px solid var(--line-2);background:var(--surface-2);font-size:12px;color:var(--ink-2)}
+.nevertag b{color:var(--muted);font-size:11.5px}
+.cols{align-items:start}
 .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:10px}
 .tcard{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:12px 13px;
   border-radius:var(--r-sm);border:1.5px solid var(--line-2);background:var(--surface);text-align:left;
@@ -470,7 +475,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-13.2-secure";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-13.4-owner";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -546,9 +551,64 @@ async function refreshToken(){
     return true;
   }catch(e){ return false; }
 }
+
+/* ---------------------------------------------------------------- *
+ * Two levels of staff. The database decides which you are; this page
+ * only reflects it. Deleting orders is refused by the database for
+ * anyone who is not the owner, whatever this page shows.
+ * ---------------------------------------------------------------- */
+let ROLE = {name:"anon", checked:false};
+try{ ROLE = Object.assign(ROLE, JSON.parse(sessionStorage.getItem("dbc.role") || "{}")); }catch(e){}
+const isOwner = () => ROLE.name === "owner";
+
+async function loadRole(){
+  if(!signedIn() || !cloudOn()){ ROLE = {name:"anon", checked:true}; return; }
+  try{
+    const r = await fetch(CLOUD.url.replace(/\/+$/, "") + "/rest/v1/rpc/my_role", {
+      method:"POST", headers: staffHeaders(), body: "{}"
+    });
+    if(r.status === 404){ ROLE = {name:"owner", checked:true, legacy:true}; }  // step 2 SQL not run yet
+    else if(r.ok){ ROLE = {name:(await r.json()) || "staff", checked:true}; }
+    else { ROLE = {name:"staff", checked:true}; }
+  }catch(e){ ROLE = {name:"staff", checked:true}; }
+  try{ sessionStorage.setItem("dbc.role", JSON.stringify(ROLE)); }catch(e){}
+  render();
+}
+
+/* Owner screens ask for the owner password even on a signed-in tablet. */
+async function ownerUnlock(email, password){
+  const res = await signIn(email, password);
+  if(!res.ok) return res;
+  await loadRole();
+  if(!isOwner()){
+    return {ok:false, msg:"That login is kitchen staff, not the owner."};
+  }
+  return {ok:true, msg:"Owner access granted"};
+}
+
+async function deleteOrder(id){
+  if(!isOwner()) { toast("Only the owner can delete an order"); return; }
+  if(cloudOn()){
+    try{
+      const r = await fetch(CLOUD.url.replace(/\/+$/, "") + "/rest/v1/orders?id=eq."
+        + encodeURIComponent(id), {method:"DELETE", headers: staffHeaders()});
+      if(r.status === 401 && await refreshToken()) return deleteOrder(id);
+      if(r.status === 403){ toast("The database refused it — owner only"); return; }
+      if(!r.ok && r.status !== 404){
+        toast("Could not delete: HTTP " + r.status); return;
+      }
+    }catch(e){ toast("Could not reach the database"); return; }
+  }
+  S.orders = S.orders.filter(o => o.id !== id);
+  save();
+  toast("Order " + id + " deleted");
+}
+
 function signOut(){
   AUTH = {token:null, refresh:null, email:null, exp:0};
   keepAuth();
+  ROLE = {name:"anon", checked:false};
+  try{ sessionStorage.removeItem("dbc.role"); }catch(e){}
   DEV.staff = false; keepDevice();
 }
 /* staff writes travel with the signed-in token */
@@ -766,12 +826,22 @@ function vAdmin(){
   today.forEach(o => o.items.forEach(i => { counts[i.n] = (counts[i.n] || 0) + i.qty; }));
   const top = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
   const max = top.length ? top[0][1] : 1;
+
+  /* Slow movers, counted over everything stored, not just today - a dish
+     nobody ordered today may still be a steady seller. Dishes never once
+     ordered are listed separately, because those are the real candidates
+     for taking off the menu. */
+  const allCounts = {};
+  S.orders.forEach(o => o.items.forEach(i => { allCounts[i.n] = (allCounts[i.n] || 0) + i.qty; }));
+  const soldNames = Object.keys(allCounts);
+  const bottom = Object.entries(allCounts).sort((a, b) => a[1] - b[1]).slice(0, 8);
+  const neverSold = MENU.items.filter(it => !(it.n in allCounts));
   const byStation = {};
   Object.keys(STATIONS).forEach(k => { byStation[k] = 0; });
   today.forEach(o => o.items.forEach(i => { byStation[i.k] += i.qty; }));
 
-  const tabs = [["tables","Tables & bills"],["live","Live orders"],["trends","Today's trends"],
-                ["feedback","Feedback"],["routing","Kitchen routing"]];
+  const tabs = [["tables","Tables & bills"],["live","Live orders"],["history","All orders"],
+                ["trends","Trends"],["feedback","Feedback"],["routing","Kitchen routing"]];
   return `
   <div class="wrap">
     <div class="tiles">
@@ -789,7 +859,8 @@ function vAdmin(){
 
     ${UI.adminTab === "tables" ? (UI.billTable != null ? vBill(UI.billTable) : vTables()) : ""}
     ${UI.adminTab === "live" ? adminLive(live) : ""}
-    ${UI.adminTab === "trends" ? adminTrends(top, max, byStation, today) : ""}
+    ${UI.adminTab === "history" ? adminHistory() : ""}
+    ${UI.adminTab === "trends" ? adminTrends(top, max, byStation, today, bottom, neverSold, soldNames) : ""}
     ${UI.adminTab === "feedback" ? adminFeedback() : ""}
     ${UI.adminTab === "routing" ? adminRouting() : ""}
 
@@ -842,7 +913,45 @@ function adminLive(live){
       : '<div class="empty">Nothing in the kitchen right now.</div>'}
   </div>`;
 }
-function adminTrends(top, max, byStation, today){
+function adminHistory(){
+  const all = S.orders.slice().sort((a, b) => b.placedAt - a.placedAt);
+  return `<div class="panel"><h3>All orders
+      <span class="eyebrow">${all.length} stored</span></h3>
+    <div class="pad" style="padding-bottom:6px">
+      <p style="font-size:13px;color:var(--muted);margin:0">
+        Every order kept as its own record. Deleting is permanent and only the owner can do it.</p>
+    </div>
+    ${all.length ? `<div class="tbl-scroll"><table>
+      <thead><tr><th>Order</th><th>Table</th><th>Items</th><th class="r">Total</th>
+        <th>State</th><th></th></tr></thead>
+      <tbody>${all.slice(0, 200).map(o => {
+        const when = new Date(o.placedAt);
+        const n = o.items.reduce((a, i) => a + i.qty, 0);
+        const st = o.settled ? "Settled" : orderStatus(o);
+        return `<tr>
+          <td class="mono">${esc(o.id)}
+            <div style="font-size:11px;color:var(--muted)">${when.toLocaleDateString("en-IN")}
+              ${when.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</div></td>
+          <td>${o.table === "parcel" ? "Parcel" : o.table}
+            <div style="font-size:11px;color:var(--muted)">${esc(o.name || "")}</div></td>
+          <td style="font-size:12.5px">${n} item${n > 1 ? "s" : ""}
+            <div style="font-size:11px;color:var(--muted)">${esc(o.items.map(i => i.qty + "x " + i.n).join(", ")).slice(0, 70)}</div></td>
+          <td class="r num">${money(o.total)}</td>
+          <td><span class="badge b-${o.settled ? "ready" : "received"}">${esc(st)}</span></td>
+          <td>${UI.confirmDel === o.id
+            ? `<div style="display:flex;gap:5px;justify-content:flex-end">
+                 <button class="btn btn-sm" style="background:var(--ember)" data-act="delorder" data-v="${esc(o.id)}">Delete</button>
+                 <button class="undo" data-act="canceldel">Keep</button>
+               </div>`
+            : `<button class="undo" data-act="delorder" data-v="${esc(o.id)}">Delete</button>`}</td>
+        </tr>`;
+      }).join("")}</tbody></table></div>
+      ${all.length > 200 ? `<div class="pad"><p style="font-size:12px;color:var(--muted);margin:0">
+        Showing the 200 most recent of ${all.length}.</p></div>` : ""}`
+      : '<div class="empty">No orders stored yet.</div>'}
+  </div>`;
+}
+function adminTrends(top, max, byStation, today, bottom, neverSold, soldNames){
   return `<div class="cols">
     <div class="panel"><h3>Most ordered today</h3><div class="pad">
       ${top.length ? top.map(([n, q]) => `<div class="barrow">
@@ -863,6 +972,29 @@ function adminTrends(top, max, byStation, today){
       }).join("")}
       <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
         Dishes sent to each kitchen today. Use this to decide where the next pair of hands goes.</p>
+    </div></div>
+
+    <div class="panel"><h3>Slowest sellers
+        <span class="eyebrow">of the ${soldNames.length} dishes ever ordered</span></h3><div class="pad">
+      ${bottom.length ? bottom.map(([n, q]) => `<div class="barrow">
+        <div class="lbl"><span>${esc(n)}</span></div>
+        <b class="num" style="text-align:right;font-size:13px">${q}</b>
+        <div style="grid-column:1/-1"><div class="bar"
+          style="width:${Math.round(q / (bottom[bottom.length - 1][1] || 1) * 100)}%;background:var(--slate)"></div></div>
+      </div>`).join("") : '<div class="empty" style="padding:26px">Nothing ordered yet.</div>'}
+      <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
+        Counted across every order stored, not just today.</p>
+    </div></div>
+
+    <div class="panel"><h3>Never ordered
+        <span class="eyebrow">${neverSold.length} dishes</span></h3><div class="pad">
+      ${neverSold.length ? `<p style="font-size:12.5px;color:var(--muted);margin:0 0 10px">
+          Not one of these has ever been ordered. The strongest candidates to drop or promote.</p>
+        <div class="neverlist">${neverSold.slice(0, 60).map(it => `<span class="nevertag">
+          ${esc(it.n)} <b class="num">${money(it.p)}</b></span>`).join("")}</div>
+        ${neverSold.length > 60 ? `<p style="font-size:12px;color:var(--muted);margin:10px 0 0">
+          and ${neverSold.length - 60} more.</p>` : ""}`
+        : '<div class="empty" style="padding:26px">Every dish on the menu has sold at least once.</div>'}
     </div></div>
   </div>`;
 }
@@ -901,6 +1033,28 @@ function adminRouting(){
         </select></td></tr>`).join("")}
       </tbody></table></div>
   </div>`;
+}
+function sheetOwner(){
+  return `<div class="sheet-bg" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true"
+    aria-label="Owner password" data-stop="1" style="max-width:400px">
+    <div class="sheet-head"><h3>Owner password</h3>
+      <button class="x" data-act="closesheet" aria-label="Close">&times;</button></div>
+    <p style="font-size:13.5px;color:var(--ink-2);margin:2px 0 0">
+      Sales, bills, trends and deleting orders. Kitchen staff cannot open this,
+      even on a tablet already signed in.</p>
+    <div class="field" style="margin-top:14px">
+      <label for="owemail">Owner email</label>
+      <input id="owemail" type="email" autocomplete="username" placeholder="owner@dbcchatore.com">
+    </div>
+    <div class="field" style="margin-top:10px">
+      <label for="owpass">Owner password</label>
+      <input id="owpass" type="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    ${UI.ownErr ? `<p style="font-size:12.5px;color:var(--ember);font-weight:650;margin:10px 0 0">
+      ${esc(UI.ownErr)}</p>` : ""}
+    <button class="btn btn-block" style="margin-top:14px" data-act="ownergo">Unlock owner screen</button>
+    <button class="undo btn-block" style="margin-top:10px" data-act="closesheet">Cancel</button>
+  </div></div>`;
 }
 function sheetPin(){
   return `<div class="sheet-bg" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true"
@@ -1260,7 +1414,7 @@ function connPanel(){
 
 function render(){
   const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"],
-                 ["k:chaat","Chaat"], ["admin","Owner"]];
+                 ["k:chaat","Chaat"], ["admin", isOwner() ? "Owner" : "Owner \u{1F512}"]];
   $("#roles").innerHTML = (DEV.staff && signedIn()) ? roles.map(([k, l]) =>
     `<button data-act="role" data-v="${k}" aria-pressed="${UI.role === k}">${esc(l)}</button>`).join("") : "";
   $("#staffbar").innerHTML = (DEV.staff && signedIn())
@@ -1276,10 +1430,20 @@ function render(){
       </div></div>`;
   } else if(UI.role.startsWith("k:")){
     $("#view").innerHTML = vKitchen(UI.role.slice(2));
+  } else if(!isOwner()){
+    $("#view").innerHTML = `<div class="wrap" style="max-width:430px">
+      <div class="empty" style="padding:52px 12px 22px">
+        <h2 style="font-size:20px;margin-bottom:8px">Owner screen</h2>
+        <p style="margin:0 0 6px">Sales, bills, trends and deleting orders are owner only.</p>
+        <p style="margin:0 0 20px;font-size:12.5px">
+          Signed in as ${esc(AUTH.email || "nobody")}.</p>
+        <button class="btn" data-act="ownerunlock">Enter owner password</button>
+      </div></div>`;
   } else {
     $("#view").innerHTML = vAdmin();
   }
-  $("#overlay").innerHTML = UI.sheet === "pin" ? sheetPin() : "";
+  $("#overlay").innerHTML = UI.sheet === "pin" ? sheetPin()
+    : UI.sheet === "owner" ? sheetOwner() : "";
   announceNew();
 }
 
@@ -1301,6 +1465,7 @@ document.addEventListener("click", ev => {
           DEV.staff = true; DEV.role = DEV.role || "admin"; keepDevice();
           UI.role = DEV.role; UI.sheet = null; UI.pinErr = false;
           render(); toast(res.msg);
+          loadRole();
         } else { UI.pinErr = res.msg; render(); }
       });
       break;
@@ -1310,7 +1475,30 @@ document.addEventListener("click", ev => {
       UI.sheet = null; render(); toast("Signed out"); break;
     case "role":
       if(!DEV.staff) break;
+      if(v === "admin" && !isOwner()){ UI.sheet = "owner"; UI.ownErr = false; render(); break; }
       UI.role = v; DEV.role = v; keepDevice(); render(); break;
+    case "ownerunlock": UI.sheet = "owner"; UI.ownErr = false; render(); break;
+    case "ownergo": {
+      const em = ($("#owemail").value || "").trim();
+      const pw = $("#owpass").value || "";
+      if(!em || !pw){ UI.ownErr = "Enter both email and password."; render(); break; }
+      UI.ownErr = "Checking…"; render();
+      ownerUnlock(em, pw).then(res => {
+        if(res.ok){
+          UI.sheet = null; UI.ownErr = false; UI.role = "admin"; DEV.role = "admin"; keepDevice();
+          render(); toast(res.msg);
+        } else { UI.ownErr = res.msg; render(); }
+      });
+      break;
+    }
+    case "delorder": {
+      const o = S.orders.find(x => x.id === v);
+      if(!o) break;
+      if(UI.confirmDel === v){ UI.confirmDel = null; deleteOrder(v); }
+      else { UI.confirmDel = v; render(); }
+      break;
+    }
+    case "canceldel": UI.confirmDel = null; render(); break;
     case "adv": advance(v, el.dataset.k); break;
     case "back": stepBack(v, el.dataset.k); break;
     case "served": markServed(v); break;
