@@ -411,10 +411,45 @@ const KEY = "dbc.pos.v1";
 let S = {orders:[], feedback:[], routing:{}, seq:0, pin:"1234"};
 let chan = null;
 
+
+/* A half-formed order must never take a kitchen screen down. Anything
+   arriving without items or tickets is repaired before it is used. */
+function normalise(st){
+  if(!st || typeof st !== "object") st = {};
+  st.orders   = Array.isArray(st.orders)   ? st.orders   : [];
+  st.feedback = Array.isArray(st.feedback) ? st.feedback : [];
+  st.routing  = (st.routing && typeof st.routing === "object") ? st.routing : {};
+  st.orders = st.orders.filter(o => o && typeof o === "object").map(o => {
+    o.items = Array.isArray(o.items) ? o.items.filter(i => i && typeof i === "object") : [];
+    o.items.forEach(i => {
+      i.qty  = Number(i.qty) > 0 ? Number(i.qty) : 1;
+      i.p    = Number(i.p) >= 0 ? Number(i.p) : 0;
+      i.mods = Array.isArray(i.mods) ? i.mods : [];
+      i.k    = (i.k && STATIONS[i.k]) ? i.k : "wok";
+    });
+    if(!o.tickets || typeof o.tickets !== "object") o.tickets = {};
+    [...new Set(o.items.map(i => i.k))].forEach(k => {
+      if(!o.tickets[k] || typeof o.tickets[k] !== "object"){
+        o.tickets[k] = {status:"received", at: o.placedAt || Date.now()};
+      }
+    });
+    // a ticket for a station with no items left is meaningless
+    Object.keys(o.tickets).forEach(k => {
+      if(!o.items.some(i => i.k === k)) delete o.tickets[k];
+    });
+    o.total    = Number(o.total) >= 0 ? Number(o.total)
+                 : o.items.reduce((n, i) => n + i.p * i.qty, 0);
+    o.placedAt = Number(o.placedAt) || Date.now();
+    o.table    = (o.table === "parcel") ? "parcel" : (Number(o.table) || o.table || "?");
+    o.name     = typeof o.name === "string" ? o.name : "";
+    return o;
+  });
+  return st;
+}
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
-    if(raw) S = Object.assign({orders:[],feedback:[],routing:{},seq:0,pin:"1234"}, JSON.parse(raw));
+    if(raw) S = normalise(Object.assign({orders:[],feedback:[],routing:{},seq:0,pin:"1234"}, JSON.parse(raw)));
   }catch(e){ /* corrupted or unavailable storage: start clean */ }
 }
 function save(broadcast){
@@ -423,7 +458,7 @@ function save(broadcast){
   render();
 }
 function adopt(next){
-  S = next;
+  S = normalise(next);
   const el = document.activeElement;
   const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
   if(!typing) render();
@@ -475,7 +510,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-13.5-access";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-13.7-roles";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -514,17 +549,26 @@ const authBase = () => CLOUD.url.replace(/\/+$/, "") + "/auth/v1";
 
 async function signIn(email, password){
   try{
-    const r = await fetch(authBase() + "/token?grant_type=password", {
-      method:"POST",
-      headers:{"apikey":CLOUD.key, "Content-Type":"application/json"},
-      body: JSON.stringify({email:email, password:password})
-    });
+    /* never sit on "Checking..." for ever - give up and say why */
+    const ctl = ("AbortController" in window) ? new AbortController() : null;
+    const bail = setTimeout(() => { if(ctl) ctl.abort(); }, 15000);
+    let r;
+    try{
+      r = await fetch(authBase() + "/token?grant_type=password", {
+        method:"POST",
+        headers:{"apikey":CLOUD.key, "Content-Type":"application/json"},
+        body: JSON.stringify({email:(email || "").trim(), password:password}),
+        signal: ctl ? ctl.signal : undefined
+      });
+    }finally{ clearTimeout(bail); }
     const b = await r.json().catch(() => ({}));
     if(!r.ok){
       const msg = (b.error_description || b.msg || b.message || "").toLowerCase();
+      if(r.status === 429) return {ok:false, msg:"Too many attempts. Wait a minute and try again."};
       if(msg.includes("invalid")) return {ok:false, msg:"Wrong email or password."};
-      if(msg.includes("confirm")) return {ok:false, msg:"That user is not confirmed yet. Tick Auto Confirm in Supabase."};
-      return {ok:false, msg:"Could not sign in: " + (b.error_description || b.msg || ("HTTP " + r.status))};
+      if(msg.includes("confirm")) return {ok:false, msg:"This user is not confirmed. In Supabase open Authentication, Users, that user, and confirm it."};
+      return {ok:false, msg:"Sign in refused (HTTP " + r.status + "): "
+        + (b.error_description || b.msg || b.message || "no reason given")};
     }
     AUTH.token = b.access_token; AUTH.refresh = b.refresh_token;
     AUTH.email = (b.user && b.user.email) || email;
@@ -532,6 +576,9 @@ async function signIn(email, password){
     keepAuth();
     return {ok:true, msg:"Signed in as " + AUTH.email};
   }catch(err){
+    if(err && err.name === "AbortError"){
+      return {ok:false, msg:"No answer after 15 seconds. Check the internet on this device, then try again."};
+    }
     return {ok:false, msg:"Could not reach the sign-in service: " + String(err.message || err)};
   }
 }
@@ -560,7 +607,7 @@ async function refreshToken(){
 let ROLE = {name:"anon", checked:false};
 try{ ROLE = Object.assign(ROLE, JSON.parse(sessionStorage.getItem("dbc.role") || "{}")); }catch(e){}
 const isOwner   = () => ROLE.name === "owner";
-const isApproved = () => ROLE.name === "owner" || ROLE.name === "staff" || ROLE.legacy === true;
+const isApproved = () => ROLE.name === "owner" || ROLE.name === "staff";
 
 async function loadRole(){
   if(!signedIn() || !cloudOn()){ ROLE = {name:"anon", checked:true}; return; }
@@ -568,7 +615,7 @@ async function loadRole(){
     const r = await fetch(CLOUD.url.replace(/\/+$/, "") + "/rest/v1/rpc/my_role", {
       method:"POST", headers: staffHeaders(), body: "{}"
     });
-    if(r.status === 404){ ROLE = {name:"owner", checked:true, legacy:true}; }  // step 2 SQL not run yet
+    if(r.status === 404){ ROLE = {name:"staff", checked:true, legacy:true}; }  // role lookup missing: assume kitchen, never owner
     else if(r.ok){
       const said = await r.json();
       ROLE = {name: (typeof said === "string" && said) ? said : "none", checked:true};
@@ -640,7 +687,7 @@ async function cloudPull(){
     if(!rows.length || !rows[0].data) return;
     const remote = rows[0].data;
     if((remote.rev || 0) > (S.rev || 0)){
-      S = Object.assign({orders:[], feedback:[], routing:{}, seq:0, pin:"1234", rev:0}, remote);
+      S = normalise(Object.assign({orders:[], feedback:[], routing:{}, seq:0, pin:"1234", rev:0}, remote));
       try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
       const el = document.activeElement;
       const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA");
@@ -1506,8 +1553,8 @@ function connPanel(){
 }
 
 function render(){
-  const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"],
-                 ["k:chaat","Chaat"], ["admin", isOwner() ? "Owner" : "Owner \u{1F512}"]];
+  const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"], ["k:chaat","Chaat"]]
+                 .concat(isOwner() ? [["admin","Owner"]] : []);
   $("#roles").innerHTML = (DEV.staff && signedIn()) ? roles.map(([k, l]) =>
     `<button data-act="role" data-v="${k}" aria-pressed="${UI.role === k}">${esc(l)}</button>`).join("") : "";
   $("#staffbar").innerHTML = (DEV.staff && signedIn())
@@ -1520,13 +1567,17 @@ function render(){
     $("#view").innerHTML = `<div class="wrap" style="max-width:430px">
       <div class="empty" style="padding:52px 12px 22px">
         <h2 style="font-size:20px;margin-bottom:8px">This login has no access</h2>
-        <p style="margin:0 0 6px">${esc(AUTH.email || "")} is not on the approved list.</p>
+        <p style="margin:0 0 6px">${esc(AUTH.email || "")} signed in correctly, but is not on
+          the approved list. The database answered "${esc(ROLE.name)}".</p>
         <p style="margin:0 0 20px;font-size:12.5px">
           The owner adds people in Supabase under staff_roles.</p>
         <button class="btn btn-ghost" data-act="lock">Sign out</button>
       </div></div>`;
     $("#overlay").innerHTML = "";
     return;
+  }
+  if(DEV.staff && signedIn() && ROLE.checked && !isOwner() && UI.role === "admin"){
+    UI.role = "k:wok"; DEV.role = "k:wok"; keepDevice();   // kitchen staff go to a board
   }
   if(!DEV.staff || !signedIn()){
     $("#view").innerHTML = `<div class="wrap" style="max-width:420px">
@@ -1582,7 +1633,7 @@ document.addEventListener("click", ev => {
       UI.sheet = null; render(); toast("Signed out"); break;
     case "role":
       if(!DEV.staff) break;
-      if(v === "admin" && !isOwner()){ UI.sheet = "owner"; UI.ownErr = false; render(); break; }
+      if(v === "admin" && !isOwner()){ toast("Sign in as the owner to open that"); break; }
       UI.role = v; DEV.role = v; keepDevice(); render(); break;
     case "ownerunlock": UI.sheet = "owner"; UI.ownErr = false; render(); break;
     case "ownergo": {
