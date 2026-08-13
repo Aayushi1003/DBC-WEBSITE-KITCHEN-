@@ -475,7 +475,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-13.4-owner";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-13.5-access";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -559,7 +559,8 @@ async function refreshToken(){
  * ---------------------------------------------------------------- */
 let ROLE = {name:"anon", checked:false};
 try{ ROLE = Object.assign(ROLE, JSON.parse(sessionStorage.getItem("dbc.role") || "{}")); }catch(e){}
-const isOwner = () => ROLE.name === "owner";
+const isOwner   = () => ROLE.name === "owner";
+const isApproved = () => ROLE.name === "owner" || ROLE.name === "staff" || ROLE.legacy === true;
 
 async function loadRole(){
   if(!signedIn() || !cloudOn()){ ROLE = {name:"anon", checked:true}; return; }
@@ -568,8 +569,11 @@ async function loadRole(){
       method:"POST", headers: staffHeaders(), body: "{}"
     });
     if(r.status === 404){ ROLE = {name:"owner", checked:true, legacy:true}; }  // step 2 SQL not run yet
-    else if(r.ok){ ROLE = {name:(await r.json()) || "staff", checked:true}; }
-    else { ROLE = {name:"staff", checked:true}; }
+    else if(r.ok){
+      const said = await r.json();
+      ROLE = {name: (typeof said === "string" && said) ? said : "none", checked:true};
+    }
+    else { ROLE = {name:"none", checked:true}; }
   }catch(e){ ROLE = {name:"staff", checked:true}; }
   try{ sessionStorage.setItem("dbc.role", JSON.stringify(ROLE)); }catch(e){}
   render();
@@ -720,7 +724,8 @@ function keepDevice(){
   try{ localStorage.setItem("dbc.device", JSON.stringify(DEV)); }catch(e){}
 }
 
-let UI = {role:DEV.role || "admin", adminTab:"tables", kview:"tickets", billTable:null, sheet:null, pinErr:false};
+let UI = {role:DEV.role || "admin", adminTab:"tables", kview:"tickets", billTable:null,
+          range:"today", from:"", to:"", sheet:null, pinErr:false};
 
 function advance(orderId, station){
   const o = S.orders.find(x => x.id === orderId);
@@ -815,11 +820,96 @@ function chit(o, k){
          </div>`}
   </article>`;
 }
+
+/* ---------------------------------------------------------------- *
+ * Date range for the owner screen. Everything below the filter bar
+ * - the totals, the trends, the order list and the download - uses
+ * the same span, so the numbers always agree with each other.
+ * ---------------------------------------------------------------- */
+const dayStart = d => { const x = new Date(d); x.setHours(0,0,0,0); return x.getTime(); };
+const dayEnd   = d => { const x = new Date(d); x.setHours(23,59,59,999); return x.getTime(); };
+const iso      = ts => new Date(ts).toISOString().slice(0,10);
+
+function rangeBounds(){
+  const now = Date.now();
+  switch(UI.range){
+    case "today":  return [dayStart(now), dayEnd(now)];
+    case "7":      return [dayStart(now - 6*864e5), dayEnd(now)];
+    case "30":     return [dayStart(now - 29*864e5), dayEnd(now)];
+    case "all":    return [0, dayEnd(now)];
+    case "custom": {
+      const a = UI.from ? dayStart(UI.from) : 0;
+      const b = UI.to   ? dayEnd(UI.to)     : dayEnd(now);
+      return [a, b];
+    }
+    default:       return [dayStart(now), dayEnd(now)];
+  }
+}
+function inRange(ts){ const [a,b] = rangeBounds(); return ts >= a && ts <= b; }
+function rangeLabel(){
+  const [a,b] = rangeBounds();
+  if(UI.range === "today") return "today";
+  if(UI.range === "all")   return "all time";
+  if(UI.range === "7")     return "last 7 days";
+  if(UI.range === "30")    return "last 30 days";
+  return iso(a || Date.now()) + " to " + iso(b);
+}
+function rangeBar(){
+  const opts = [["today","Today"],["7","7 days"],["30","30 days"],["all","All time"],["custom","Pick dates"]];
+  return `<div class="panel" style="margin-bottom:14px"><div class="pad">
+    <div class="eyebrow" style="margin-bottom:8px">Showing ${esc(rangeLabel())}</div>
+    <div class="rail" style="margin-bottom:${UI.range === "custom" ? "10px" : "0"}">
+      ${opts.map(([k,l]) => `<button class="chip" data-act="range" data-v="${k}"
+        aria-pressed="${(UI.range || "today") === k}">${l}</button>`).join("")}
+      <span style="flex:1"></span>
+      <button class="chip" data-act="csv" title="Download these orders as a spreadsheet file">
+        &#8681; Download CSV</button>
+    </div>
+    ${UI.range === "custom" ? `<div class="pinrow">
+      <div class="field"><label for="dfrom">From</label>
+        <input id="dfrom" type="date" value="${esc(UI.from || "")}" data-act="dfrom"></div>
+      <div class="field"><label for="dto">To</label>
+        <input id="dto" type="date" value="${esc(UI.to || "")}" data-act="dto"></div>
+    </div>` : ""}
+  </div></div>`;
+}
+
+/* Straight into Excel, Numbers or Google Sheets. One line per dish so
+   the totals can be pivoted however the accountant wants them. */
+function exportCsv(){
+  const rows = S.orders.filter(o => inRange(o.placedAt))
+    .slice().sort((a,b) => a.placedAt - b.placedAt);
+  const esc2 = v => {
+    const t = String(v === null || v === undefined ? "" : v);
+    return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+  };
+  const out = [["Order","Date","Time","Table","Name","Dish","Qty","Rate","Amount",
+                "Kitchen","Changes","Note","Order total","Settled"].join(",")];
+  rows.forEach(o => {
+    const d = new Date(o.placedAt);
+    o.items.forEach(i => {
+      out.push([o.id, d.toLocaleDateString("en-IN"), d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),
+        (o.table === "parcel" ? "Parcel" : o.table), o.name || "", i.n, i.qty, i.p, i.p * i.qty,
+        (STATIONS[i.k] ? STATIONS[i.k].name : i.k), (i.mods || []).join(" / "), i.note || "",
+        o.total, o.settled ? "yes" : "no"].map(esc2).join(","));
+    });
+  });
+  const blob = new Blob(["\ufeff" + out.join("\n")], {type:"text/csv;charset=utf-8;"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "dbc-orders-" + (UI.range === "custom"
+    ? (UI.from || "start") + "_to_" + (UI.to || iso(Date.now()))
+    : rangeLabel().replace(/\s+/g, "-")) + ".csv";
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(rows.length + " order" + (rows.length === 1 ? "" : "s") + " downloaded");
+}
+
 function vAdmin(){
-  const today = S.orders.filter(o => isToday(o.placedAt));
+  const today = S.orders.filter(o => inRange(o.placedAt));
   const sales = today.reduce((n, o) => n + o.total, 0);
   const live = S.orders.filter(o => !o.settled && !o.served && orderStatus(o) !== "served");
-  const fbToday = S.feedback.filter(f => isToday(f.at));
+  const fbToday = S.feedback.filter(f => inRange(f.at));
   const avg = fbToday.length
     ? (fbToday.reduce((n, f) => n + f.rating, 0) / fbToday.length).toFixed(1) : "—";
   const counts = {};
@@ -832,7 +922,8 @@ function vAdmin(){
      ordered are listed separately, because those are the real candidates
      for taking off the menu. */
   const allCounts = {};
-  S.orders.forEach(o => o.items.forEach(i => { allCounts[i.n] = (allCounts[i.n] || 0) + i.qty; }));
+  S.orders.filter(o => inRange(o.placedAt))
+          .forEach(o => o.items.forEach(i => { allCounts[i.n] = (allCounts[i.n] || 0) + i.qty; }));
   const soldNames = Object.keys(allCounts);
   const bottom = Object.entries(allCounts).sort((a, b) => a[1] - b[1]).slice(0, 8);
   const neverSold = MENU.items.filter(it => !(it.n in allCounts));
@@ -844,12 +935,13 @@ function vAdmin(){
                 ["trends","Trends"],["feedback","Feedback"],["routing","Kitchen routing"]];
   return `
   <div class="wrap">
+    ${rangeBar()}
     <div class="tiles">
-      <div class="tile"><span>Orders today</span><b class="num">${today.length}</b></div>
-      <div class="tile"><span>Sales today</span><b class="num">${money(sales)}</b></div>
+      <div class="tile"><span>Orders</span><b class="num">${today.length}</b></div>
+      <div class="tile"><span>Sales</span><b class="num">${money(sales)}</b></div>
       <div class="tile"><span>Average bill</span><b class="num">${today.length ? money(sales / today.length) : "—"}</b></div>
       <div class="tile"><span>In the kitchen</span><b class="num">${live.length}</b></div>
-      <div class="tile"><span>Rating today</span><b class="num">${avg}${fbToday.length ? " ★" : ""}</b></div>
+      <div class="tile"><span>Rating</span><b class="num">${avg}${fbToday.length ? " ★" : ""}</b></div>
     </div>
 
     <div class="rail" style="margin-bottom:14px">
@@ -914,7 +1006,8 @@ function adminLive(live){
   </div>`;
 }
 function adminHistory(){
-  const all = S.orders.slice().sort((a, b) => b.placedAt - a.placedAt);
+  const all = S.orders.filter(o => inRange(o.placedAt))
+                      .slice().sort((a, b) => b.placedAt - a.placedAt);
   return `<div class="panel"><h3>All orders
       <span class="eyebrow">${all.length} stored</span></h3>
     <div class="pad" style="padding-bottom:6px">
@@ -983,7 +1076,7 @@ function adminTrends(top, max, byStation, today, bottom, neverSold, soldNames){
           style="width:${Math.round(q / (bottom[bottom.length - 1][1] || 1) * 100)}%;background:var(--slate)"></div></div>
       </div>`).join("") : '<div class="empty" style="padding:26px">Nothing ordered yet.</div>'}
       <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
-        Counted across every order stored, not just today.</p>
+        Counted across ${esc(rangeLabel())}.</p>
     </div></div>
 
     <div class="panel"><h3>Never ordered
@@ -1421,6 +1514,20 @@ function render(){
     ? `<button class="lockbtn" data-act="lock">Sign out</button>`
     : `<span class="pill-live"><span class="blip"></span> LOCKED</span>`;
 
+  if(signedIn() && ROLE.checked && !isApproved()){
+    $("#roles").innerHTML = "";
+    $("#staffbar").innerHTML = `<button class="lockbtn" data-act="lock">Sign out</button>`;
+    $("#view").innerHTML = `<div class="wrap" style="max-width:430px">
+      <div class="empty" style="padding:52px 12px 22px">
+        <h2 style="font-size:20px;margin-bottom:8px">This login has no access</h2>
+        <p style="margin:0 0 6px">${esc(AUTH.email || "")} is not on the approved list.</p>
+        <p style="margin:0 0 20px;font-size:12.5px">
+          The owner adds people in Supabase under staff_roles.</p>
+        <button class="btn btn-ghost" data-act="lock">Sign out</button>
+      </div></div>`;
+    $("#overlay").innerHTML = "";
+    return;
+  }
   if(!DEV.staff || !signedIn()){
     $("#view").innerHTML = `<div class="wrap" style="max-width:420px">
       <div class="empty" style="padding:56px 12px 22px">
@@ -1503,6 +1610,8 @@ document.addEventListener("click", ev => {
     case "back": stepBack(v, el.dataset.k); break;
     case "served": markServed(v); break;
     case "atab": UI.adminTab = v; UI.billTable = null; render(); break;
+    case "range": UI.range = v; render(); break;
+    case "csv": exportCsv(); break;
     case "bill": UI.billTable = (v === "parcel") ? "parcel" : Number(v); render(); break;
     case "tables": UI.billTable = null; render(); break;
     case "settle": settleTable(v === "parcel" ? "parcel" : Number(v)); break;
@@ -1547,6 +1656,11 @@ document.addEventListener("click", ev => {
   }
 });
 document.addEventListener("change", ev => {
+  const d = ev.target.closest("[data-act='dfrom'],[data-act='dto']");
+  if(d){
+    if(d.dataset.act === "dfrom") UI.from = d.value; else UI.to = d.value;
+    render(); return;
+  }
   const el = ev.target.closest("[data-act='route']");
   if(!el) return;
   S.routing[el.dataset.v] = el.value;
@@ -1564,6 +1678,7 @@ setInterval(() => {
 load();
 seedSpoken();
 render();
+if(signedIn() && !ROLE.checked) loadRole();
 syncTopbar();
 
 </script>
