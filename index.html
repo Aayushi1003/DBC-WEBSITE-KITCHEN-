@@ -510,7 +510,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-13.7-roles";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-13.8-bills";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -771,7 +771,7 @@ function keepDevice(){
   try{ localStorage.setItem("dbc.device", JSON.stringify(DEV)); }catch(e){}
 }
 
-let UI = {role:DEV.role || "admin", adminTab:"tables", kview:"tickets", billTable:null,
+let UI = {role:DEV.role || "admin", adminTab:"live", kview:"tickets", billTable:null,
           range:"today", from:"", to:"", sheet:null, pinErr:false};
 
 function advance(orderId, station){
@@ -978,7 +978,7 @@ function vAdmin(){
   Object.keys(STATIONS).forEach(k => { byStation[k] = 0; });
   today.forEach(o => o.items.forEach(i => { byStation[i.k] += i.qty; }));
 
-  const tabs = [["tables","Tables & bills"],["live","Live orders"],["history","All orders"],
+  const tabs = [["live","Live orders"],["history","All orders"],
                 ["trends","Trends"],["feedback","Feedback"],["routing","Kitchen routing"]];
   return `
   <div class="wrap">
@@ -996,7 +996,6 @@ function vAdmin(){
         aria-pressed="${UI.adminTab === k}">${l}</button>`).join("")}
     </div>
 
-    ${UI.adminTab === "tables" ? (UI.billTable != null ? vBill(UI.billTable) : vTables()) : ""}
     ${UI.adminTab === "live" ? adminLive(live) : ""}
     ${UI.adminTab === "history" ? adminHistory() : ""}
     ${UI.adminTab === "trends" ? adminTrends(top, max, byStation, today, bottom, neverSold, soldNames) : ""}
@@ -1553,7 +1552,8 @@ function connPanel(){
 }
 
 function render(){
-  const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"], ["k:chaat","Chaat"]]
+  const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"], ["k:chaat","Chaat"],
+                 ["bills","Tables & bills"]]
                  .concat(isOwner() ? [["admin","Owner"]] : []);
   $("#roles").innerHTML = (DEV.staff && signedIn()) ? roles.map(([k, l]) =>
     `<button data-act="role" data-v="${k}" aria-pressed="${UI.role === k}">${esc(l)}</button>`).join("") : "";
@@ -1577,7 +1577,7 @@ function render(){
     return;
   }
   if(DEV.staff && signedIn() && ROLE.checked && !isOwner() && UI.role === "admin"){
-    UI.role = "k:wok"; DEV.role = "k:wok"; keepDevice();   // kitchen staff go to a board
+    UI.role = "bills"; DEV.role = "bills"; keepDevice();   // kitchen staff go to the bills screen
   }
   if(!DEV.staff || !signedIn()){
     $("#view").innerHTML = `<div class="wrap" style="max-width:420px">
@@ -1588,6 +1588,10 @@ function render(){
       </div></div>`;
   } else if(UI.role.startsWith("k:")){
     $("#view").innerHTML = vKitchen(UI.role.slice(2));
+  } else if(UI.role === "bills"){
+    $("#view").innerHTML = `<div class="wrap">
+      ${UI.billTable != null ? vBill(UI.billTable) : vTables()}
+    </div>`;
   } else if(!isOwner()){
     $("#view").innerHTML = `<div class="wrap" style="max-width:430px">
       <div class="empty" style="padding:52px 12px 22px">
