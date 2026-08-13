@@ -470,6 +470,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
+const BUILD = "2026-08-13.2-secure";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -492,6 +493,73 @@ function cloudHeaders(){
     "Content-Type": "application/json"
   };
 }
+
+/* ---------------------------------------------------------------- *
+ * Staff sign-in. The database checks the password, not this page, so
+ * reading the page source tells an outsider nothing useful. Every
+ * change a staff member makes is sent with their own token.
+ * ---------------------------------------------------------------- */
+let AUTH = {token:null, refresh:null, email:null, exp:0};
+try{ AUTH = Object.assign(AUTH, JSON.parse(localStorage.getItem("dbc.auth") || "{}")); }catch(e){}
+function keepAuth(){
+  try{ localStorage.setItem("dbc.auth", JSON.stringify(AUTH)); }catch(e){}
+}
+const signedIn = () => !!(AUTH.token && AUTH.email);
+const authBase = () => CLOUD.url.replace(/\/+$/, "") + "/auth/v1";
+
+async function signIn(email, password){
+  try{
+    const r = await fetch(authBase() + "/token?grant_type=password", {
+      method:"POST",
+      headers:{"apikey":CLOUD.key, "Content-Type":"application/json"},
+      body: JSON.stringify({email:email, password:password})
+    });
+    const b = await r.json().catch(() => ({}));
+    if(!r.ok){
+      const msg = (b.error_description || b.msg || b.message || "").toLowerCase();
+      if(msg.includes("invalid")) return {ok:false, msg:"Wrong email or password."};
+      if(msg.includes("confirm")) return {ok:false, msg:"That user is not confirmed yet. Tick Auto Confirm in Supabase."};
+      return {ok:false, msg:"Could not sign in: " + (b.error_description || b.msg || ("HTTP " + r.status))};
+    }
+    AUTH.token = b.access_token; AUTH.refresh = b.refresh_token;
+    AUTH.email = (b.user && b.user.email) || email;
+    AUTH.exp = Date.now() + ((b.expires_in || 3600) * 1000);
+    keepAuth();
+    return {ok:true, msg:"Signed in as " + AUTH.email};
+  }catch(err){
+    return {ok:false, msg:"Could not reach the sign-in service: " + String(err.message || err)};
+  }
+}
+async function refreshToken(){
+  if(!AUTH.refresh) return false;
+  try{
+    const r = await fetch(authBase() + "/token?grant_type=refresh_token", {
+      method:"POST",
+      headers:{"apikey":CLOUD.key, "Content-Type":"application/json"},
+      body: JSON.stringify({refresh_token: AUTH.refresh})
+    });
+    if(!r.ok) return false;
+    const b = await r.json();
+    AUTH.token = b.access_token; AUTH.refresh = b.refresh_token || AUTH.refresh;
+    AUTH.exp = Date.now() + ((b.expires_in || 3600) * 1000);
+    keepAuth();
+    return true;
+  }catch(e){ return false; }
+}
+function signOut(){
+  AUTH = {token:null, refresh:null, email:null, exp:0};
+  keepAuth();
+  DEV.staff = false; keepDevice();
+}
+/* staff writes travel with the signed-in token */
+function staffHeaders(){
+  return {
+    "apikey": CLOUD.key,
+    "Authorization": "Bearer " + (AUTH.token || CLOUD.key),
+    "Content-Type": "application/json"
+  };
+}
+
 function cloudEndpoint(){
   return CLOUD.url.replace(/\/+$/, "") + "/rest/v1/" + CLOUD.table
        + "?id=eq." + CLOUD.row;
@@ -526,9 +594,22 @@ async function cloudPush(){
   try{
     const r = await fetch(cloudEndpoint(), {
       method: "PATCH",
-      headers: Object.assign(cloudHeaders(), {"Prefer": "return=minimal"}),
+      headers: Object.assign(staffHeaders(), {"Prefer": "return=minimal"}),
       body: JSON.stringify({data: S})
     });
+    if(r.status === 401 && await refreshToken()){
+      const again = await fetch(cloudEndpoint(), {
+        method: "PATCH",
+        headers: Object.assign(staffHeaders(), {"Prefer": "return=minimal"}),
+        body: JSON.stringify({data: S})
+      });
+      if(!again.ok) throw new Error("HTTP " + again.status + " " + (await again.text()).slice(0, 120));
+      CLOUDSTATE.ok = true; CLOUDSTATE.error = ""; CLOUDSTATE.last = Date.now();
+      return;
+    }
+    if(r.status === 401 || r.status === 403){
+      throw new Error("Not allowed — sign in again to make changes.");
+    }
     if(!r.ok){ throw new Error("HTTP " + r.status + " " + (await r.text()).slice(0, 120)); }
     CLOUDSTATE.ok = true; CLOUDSTATE.error = ""; CLOUDSTATE.last = Date.now();
   }catch(err){
@@ -573,7 +654,7 @@ window.addEventListener("resize", syncTopbar);
 try{ new ResizeObserver(syncTopbar).observe(document.querySelector(".topbar")); }catch(e){}
 
 
-let DEV = {staff:false, role:null};
+let DEV = {staff:false, role:null};   // staff also requires a live sign-in below
 try{ DEV = Object.assign(DEV, JSON.parse(localStorage.getItem("dbc.device") || "{}")); }catch(e){}
 function keepDevice(){
   try{ localStorage.setItem("dbc.device", JSON.stringify(DEV)); }catch(e){}
@@ -724,34 +805,17 @@ function vAdmin(){
       </div></div>
     </div>
 
-    <div class="panel" style="margin-top:16px"><h3>Staff PIN</h3><div class="pad">
+    <div class="panel" style="margin-top:16px"><h3>Who can change things</h3><div class="pad">
       <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
-        The customer page has none of these screens in it. This PIN is a second lock on the
-        kitchen page itself, and each tablet only needs it once. Current PIN
-        <b class="mono" style="color:var(--ink)">${esc(String(S.pin || "1234"))}</b>.</p>
-      <div class="pinrow">
-        <div class="field"><label for="newpin">New PIN (4–6 digits)</label>
-          <input id="newpin" inputmode="numeric" placeholder="e.g. 4821"></div>
-        <button class="btn btn-sm" data-act="setpin">Change PIN</button>
-      </div>
-      <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
-        This keeps customers out of the wrong screens. It is not bank-grade security — anyone
-        who digs into the page source can read it, so don't reuse a PIN that protects money.</p>
-    </div></div>
-
-    <div class="panel" style="margin-top:16px"><h3>Spoken order alerts</h3><div class="pad">
-      <p style="font-size:13px;color:var(--muted);margin:0 0 12px">
-        Each kitchen tablet can chime and read new orders out in Hindi. Turn it on with the
-        speaker button on that kitchen's screen — it has to be switched on once per tablet,
-        because browsers block sound until someone asks for it.</p>
-      <div class="srow"><span>Voice on this device</span><span>${VOICE.on ? "On" : "Off"}</span></div>
-      <div class="srow"><span>Voice being used</span>
-        <span style="text-align:right">${esc(voiceLabel())}</span></div>
-      <button class="btn btn-sm" style="margin-top:12px" data-act="testvoice">Play a test announcement</button>
-      <p style="font-size:12px;color:var(--muted);margin:12px 0 0">
-        If it stays silent, this device has no Hindi voice installed. On Android add it under
-        Settings &rsaquo; Text-to-speech; on iPad under Settings &rsaquo; Accessibility
-        &rsaquo; Spoken Content &rsaquo; Voices &rsaquo; Hindi.</p>
+        Kitchen and owner screens need a sign-in that the database checks. The old 1234 PIN
+        is gone. Add or remove staff logins in Supabase under Authentication &rsaquo; Users.</p>
+      <div class="srow"><span>Signed in as</span>
+        <span style="font-weight:700">${signedIn() ? esc(AUTH.email) : "nobody"}</span></div>
+      <div class="srow"><span>Customer page</span><span>can only add orders</span></div>
+      <div class="srow"><span>This device can change orders</span>
+        <span style="font-weight:700;color:${signedIn() ? "var(--ok)" : "var(--ember)"}">
+          ${signedIn() ? "yes" : "no"}</span></div>
+      <button class="btn btn-sm btn-ghost" style="margin-top:12px" data-act="lock">Sign out of this device</button>
     </div></div>
 
     ${cloudPanel()}
@@ -840,20 +904,25 @@ function adminRouting(){
 }
 function sheetPin(){
   return `<div class="sheet-bg" data-act="closesheet"><div class="sheet" role="dialog" aria-modal="true"
-    aria-label="Staff access" data-stop="1" style="max-width:400px">
-    <div class="sheet-head"><h3>Staff access</h3>
+    aria-label="Staff sign in" data-stop="1" style="max-width:400px">
+    <div class="sheet-head"><h3>Staff sign in</h3>
       <button class="x" data-act="closesheet" aria-label="Close">&times;</button></div>
     <p style="font-size:13.5px;color:var(--ink-2);margin:2px 0 0">
-      For kitchen and owner screens. Enter the shop PIN — this tablet will remember it.</p>
+      Kitchen and owner screens. Your password is checked by the database,
+      not by this page. This tablet will stay signed in.</p>
     <div class="field" style="margin-top:14px">
-      <label for="pinin">PIN</label>
-      <input id="pinin" data-act="pinin" type="password" inputmode="numeric" autocomplete="off"
-        placeholder="••••" style="letter-spacing:.4em;font-size:19px;text-align:center">
+      <label for="sgemail">Email</label>
+      <input id="sgemail" type="email" autocomplete="username"
+        placeholder="owner@dbcchatore.com" value="${esc(AUTH.email || "")}">
     </div>
-    ${UI.pinErr ? `<p style="font-size:12.5px;color:var(--ember);font-weight:650;margin:9px 0 0">
-      That PIN doesn't match. Ask the owner.</p>` : ""}
-    <button class="btn btn-block" style="margin-top:14px" data-act="pingo">Unlock</button>
-    <button class="undo btn-block" style="margin-top:10px" data-act="closesheet">Back to the menu</button>
+    <div class="field" style="margin-top:10px">
+      <label for="sgpass">Password</label>
+      <input id="sgpass" type="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    ${UI.pinErr ? `<p style="font-size:12.5px;color:var(--ember);font-weight:650;margin:10px 0 0">
+      ${esc(UI.pinErr)}</p>` : ""}
+    <button class="btn btn-block" style="margin-top:14px" data-act="pingo">Sign in</button>
+    <button class="undo btn-block" style="margin-top:10px" data-act="closesheet">Cancel</button>
   </div></div>`;
 }
 function seed(){
@@ -1177,6 +1246,8 @@ function connPanel(){
       <span class="mono" style="font-size:11.5px">${esc(location.origin)}</span></div>
     <div class="srow"><span>Order book</span>
       <span>${ok ? "readable" : "blocked by this browser"}</span></div>
+    <div class="srow"><span>Build on this device</span>
+      <span class="mono" style="font-size:11.5px">${esc(BUILD)}</span></div>
     <div class="srow total"><span>Orders in the book</span>
       <span class="num">${S.orders.length}</span></div>
     <p style="font-size:12.5px;color:var(--muted);margin:12px 0 0">
@@ -1190,18 +1261,18 @@ function connPanel(){
 function render(){
   const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"],
                  ["k:chaat","Chaat"], ["admin","Owner"]];
-  $("#roles").innerHTML = DEV.staff ? roles.map(([k, l]) =>
+  $("#roles").innerHTML = (DEV.staff && signedIn()) ? roles.map(([k, l]) =>
     `<button data-act="role" data-v="${k}" aria-pressed="${UI.role === k}">${esc(l)}</button>`).join("") : "";
-  $("#staffbar").innerHTML = DEV.staff
-    ? `<button class="lockbtn" data-act="lock">Lock</button>`
+  $("#staffbar").innerHTML = (DEV.staff && signedIn())
+    ? `<button class="lockbtn" data-act="lock">Sign out</button>`
     : `<span class="pill-live"><span class="blip"></span> LOCKED</span>`;
 
-  if(!DEV.staff){
+  if(!DEV.staff || !signedIn()){
     $("#view").innerHTML = `<div class="wrap" style="max-width:420px">
       <div class="empty" style="padding:56px 12px 22px">
         <h2 style="font-size:20px;margin-bottom:8px">Kitchen &amp; owner screens</h2>
         <p style="margin:0 0 20px">This page is for staff. Customers order on a different page.</p>
-        <button class="btn" data-act="pinopen">Enter staff PIN</button>
+        <button class="btn" data-act="pinopen">Staff sign in</button>
       </div></div>`;
   } else if(UI.role.startsWith("k:")){
     $("#view").innerHTML = vKitchen(UI.role.slice(2));
@@ -1221,17 +1292,22 @@ document.addEventListener("click", ev => {
     case "pinopen": UI.sheet = "pin"; UI.pinErr = false; render(); break;
     case "closesheet": UI.sheet = null; render(); break;
     case "pingo": {
-      const box = $("#pinin");
-      if(box && box.value === String(S.pin || "1234")){
-        DEV.staff = true; DEV.role = DEV.role || "admin"; keepDevice();
-        UI.role = DEV.role; UI.sheet = null; UI.pinErr = false;
-        render(); toast("Unlocked on this device");
-      } else { UI.pinErr = true; render(); }
+      const em = ($("#sgemail").value || "").trim();
+      const pw = $("#sgpass").value || "";
+      if(!em || !pw){ UI.pinErr = "Enter both email and password."; render(); break; }
+      UI.pinErr = "Checking…"; render();
+      signIn(em, pw).then(res => {
+        if(res.ok){
+          DEV.staff = true; DEV.role = DEV.role || "admin"; keepDevice();
+          UI.role = DEV.role; UI.sheet = null; UI.pinErr = false;
+          render(); toast(res.msg);
+        } else { UI.pinErr = res.msg; render(); }
+      });
       break;
     }
     case "lock":
-      DEV.staff = false; keepDevice();
-      UI.sheet = null; render(); toast("Locked"); break;
+      signOut();
+      UI.sheet = null; render(); toast("Signed out"); break;
     case "role":
       if(!DEV.staff) break;
       UI.role = v; DEV.role = v; keepDevice(); render(); break;
@@ -1280,13 +1356,6 @@ document.addEventListener("click", ev => {
     }
     case "seed": seed(); break;
     case "clear": S.orders = []; S.feedback = []; save(); toast("Cleared"); break;
-    case "setpin": {
-      const box = $("#newpin");
-      const v2 = (box ? box.value : "").trim();
-      if(/^\d{4,6}$/.test(v2)){ S.pin = v2; save(); toast("PIN changed to " + v2); }
-      else toast("Use 4 to 6 digits");
-      break;
-    }
   }
 });
 document.addEventListener("change", ev => {
