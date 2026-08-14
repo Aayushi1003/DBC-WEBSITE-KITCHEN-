@@ -512,7 +512,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-14.5-serve";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-14.6-details";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -1039,13 +1039,15 @@ function exportCsv(){
     const t = String(v === null || v === undefined ? "" : v);
     return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
   };
-  const out = [["Order","Date","Time","Table","Name","Dish","Qty","Rate","Amount",
+  const out = [["Order","Date","Time","Table","Type","Name","Phone","Dish","Qty","Rate","Amount",
                 "Kitchen","Changes","Note","Order total","Settled"].join(",")];
   rows.forEach(o => {
     const d = new Date(o.placedAt);
     o.items.forEach(i => {
       out.push([o.id, d.toLocaleDateString("en-IN"), d.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}),
-        (o.table === "parcel" ? "Parcel" : o.table), o.name || "", i.n, i.qty, i.p, i.p * i.qty,
+        (o.table === "parcel" ? "Parcel" : o.table),
+        (o.orderType === "takeaway" ? "Takeaway" : "Dine in"),
+        o.name || "", o.phone || "", i.n, i.qty, i.p, i.p * i.qty,
         (STATIONS[i.k] ? STATIONS[i.k].name : i.k), (i.mods || []).join(" / "), i.note || "",
         o.total, o.settled ? "yes" : "no"].map(esc2).join(","));
     });
@@ -1210,7 +1212,8 @@ function adminHistory(){
             <div style="font-size:11px;color:var(--muted)">${when.toLocaleDateString("en-IN")}
               ${when.toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}</div></td>
           <td>${o.table === "parcel" ? "Parcel" : o.table}
-            <div style="font-size:11px;color:var(--muted)">${esc(o.name || "")}</div></td>
+            <div style="font-size:11px;color:var(--muted)">${esc(o.name || "")}</div>
+            <div style="font-size:11px;color:var(--muted)" class="mono">${esc(o.phone || "")}</div></td>
           <td style="font-size:12.5px">${n} item${n > 1 ? "s" : ""}
             <div style="font-size:11px;color:var(--muted)">${esc(o.items.map(i => i.qty + "x " + i.n).join(", ")).slice(0, 70)}</div></td>
           <td class="r num">${money(o.total)}</td>
@@ -1561,6 +1564,8 @@ const isParcel  = t => String(t).startsWith("parcel");
    name given at checkout; anyone who left the name blank stays a bill of
    their own rather than being merged with other unnamed customers. */
 function parcelKeyFor(o){
+  const p = String(o.phone || "").replace(/[^0-9]/g, "");
+  if(p) return "parcel:" + p;                    // phone is the surest identity
   const n = (o.name || "").trim();
   return (n && n.toLowerCase() !== "guest")
     ? "parcel:" + n.toLowerCase()
@@ -1692,6 +1697,12 @@ function vBill(tbl){
       <div class="bill-meta">
         <span>Bill ${esc(billNo(b))}</span><span>${esc(tableName(tbl))}</span>
       </div>
+      ${(function(){
+        const o = b.orders[b.orders.length - 1] || {};
+        if(!o.name && !o.phone) return "";
+        return `<div class="bill-meta"><span>${esc(o.name || "")}</span>
+          <span class="mono">${esc(o.phone || "")}</span></div>`;
+      })()}
       <div class="bill-meta">
         <span>${now.toLocaleDateString("en-IN")} ${now.toLocaleTimeString("en-IN", {hour:"2-digit", minute:"2-digit"})}</span>
         <span>${b.orders.length} round${b.orders.length > 1 ? "s" : ""}</span>
