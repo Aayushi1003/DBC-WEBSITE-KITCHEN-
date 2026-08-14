@@ -282,6 +282,9 @@ input,select,textarea{font-family:inherit;font-size:inherit;color:var(--ink)}
 .tcard .tnum{font-family:var(--display);font-size:19px;font-weight:800;line-height:1}
 .tcard .parcelname{font-size:15px;word-break:break-word}
 .tcard.parcelcard{border-style:solid}
+.tcard.hasaway{border-color:var(--st-chaat);background:color-mix(in srgb,var(--st-chaat) 8%,var(--surface))}
+.tcard.hasaway .tstate{color:var(--st-chaat)}
+.tcard .awaytag{font-size:10.5px;font-weight:700;color:var(--st-chaat);margin-top:auto}
 .tcard .tstate{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
 .tcard.free{opacity:.72}
 .tcard.free .tstate{color:var(--muted)}
@@ -512,7 +515,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-14.6-details";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-14.7-fromtable";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -1587,6 +1590,12 @@ function parcelGroups(){
     });
   return seen;
 }
+/* Takeaway ordered by someone sitting at a table: billed at the parcel
+   counter, but the table needs to know it exists. */
+function takeawayFrom(tbl){
+  return S.orders.filter(o => !o.settled && isParcel(o.table)
+    && o.fromTable != null && sameTable(o.fromTable, tbl));
+}
 function openOrdersFor(target){
   if(isParcel(target)){
     return S.orders.filter(o => isParcel(o.table) && !o.settled
@@ -1631,13 +1640,17 @@ function billNo(b){
 function vTables(){
   const tables = tableList().map(t => {
     const b = billFor(t);
+    const away = takeawayFrom(t);
     const busy = b.orders.length > 0;
     const cooking = b.orders.some(o => orderStatus(o) !== "ready" && !o.served);
-    return `<button class="tcard ${busy ? "busy" : "free"}" data-act="bill" data-v="${t}">
+    return `<button class="tcard ${busy ? "busy" : (away.length ? "hasaway" : "free")}"
+      data-act="bill" data-v="${t}">
       <span class="tnum">${t}</span>
-      <span class="tstate">${busy ? (cooking ? "Cooking" : "Occupied") : "Free"}</span>
+      <span class="tstate">${busy ? (cooking ? "Cooking" : "Occupied")
+        : (away.length ? "Takeaway" : "Free")}</span>
       ${busy ? `<span class="tsum"><b class="num">${money(b.total)}</b>
         <span>${b.orders.length} order${b.orders.length > 1 ? "s" : ""}</span></span>` : ""}
+      ${away.length ? `<span class="awaytag">&#129386; ${away.length} takeaway</span>` : ""}
     </button>`;
   }).join("");
 
@@ -1645,9 +1658,12 @@ function vTables(){
   const parcels = groups.map(g => {
     const b = billFor(g.key);
     const cooking = b.orders.some(o => orderStatus(o) !== "ready" && !o.served);
+    const from = g.orders.map(o => o.fromTable)
+      .filter(v => v != null && String(v) !== "parcel");
+    const fromTxt = from.length ? "from table " + [...new Set(from.map(String))].join(", ") : "at counter";
     return `<button class="tcard busy parcelcard" data-act="bill" data-v="${esc(g.key)}">
       <span class="tnum parcelname">${esc(g.label)}</span>
-      <span class="tstate">${cooking ? "Cooking" : "Parcel"}</span>
+      <span class="tstate">${cooking ? "Cooking" : "Parcel"} &middot; ${esc(fromTxt)}</span>
       <span class="tsum"><b class="num">${money(b.total)}</b>
         <span>${b.orders.length} order${b.orders.length > 1 ? "s" : ""}</span></span>
     </button>`;
@@ -1674,15 +1690,30 @@ function vTables(){
 
 function vBill(tbl){
   const b = billFor(tbl);
+  const away = isParcel(tbl) ? [] : takeawayFrom(tbl);
+  const awayNote = away.length ? `<div class="note-box noprint" style="margin-bottom:12px">
+      <span aria-hidden="true">&#129386;</span>
+      <div><b>${away.length} takeaway order${away.length > 1 ? "s" : ""} from this table.</b>
+        Billed separately at the parcel counter.
+        <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
+          ${[...new Set(away.map(o => parcelKeyFor(o)))].map(k => {
+            const g = parcelGroups().find(x => x.key === k);
+            return `<button class="btn btn-sm btn-ghost" data-act="bill" data-v="${esc(k)}">
+              Open ${esc(g ? g.label : "parcel bill")}</button>`;
+          }).join("")}
+        </div></div>
+    </div>` : "";
   if(!b.orders.length){
     return `<div class="panel"><h3>${esc(tableName(tbl))}</h3>
+      ${awayNote}
       <div class="empty">Nothing left to bill here.
       <div style="margin-top:14px"><button class="btn btn-sm btn-ghost" data-act="tables">Back to tables</button></div>
       </div></div>`;
   }
   const now = new Date();
   const rounds = b.orders.map(o => o.id).join(", ");
-  return `<div class="noprint" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+  return `${awayNote}
+    <div class="noprint" style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
       <button class="btn btn-sm btn-ghost" data-act="tables">&larr; All tables</button>
       <button class="btn btn-sm" data-act="print">Print bill</button>
       <button class="btn btn-sm" style="background:var(--ok)" data-act="settle" data-v="${tbl}">
