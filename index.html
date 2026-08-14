@@ -512,7 +512,7 @@ function syncTopbar(){
  * to sit in a web page — it is not a password, and it cannot read
  * anything the table policy does not allow.
  * ---------------------------------------------------------------- */
-const BUILD = "2026-08-14.4-parcel";   // shown on the Owner screen so a tampered copy stands out
+const BUILD = "2026-08-14.5-serve";   // shown on the Owner screen so a tampered copy stands out
 const CLOUD = {
   url: "https://ynbnnihyycgqwanunusk.supabase.co",
   key: "sb_publishable_Voq6TaWpjQaQ1tgwfA55xA_v2ZnmRxx",
@@ -796,6 +796,113 @@ function markServed(orderId){
   const o = S.orders.find(x => x.id === orderId);
   if(o){ o.served = true; save(); }
 }
+/* ---------------------------------------------------------------- *
+ * Ready to serve. One entry per kitchen that has finished its part of
+ * an order, so a waiter can carry the starters out while the mains are
+ * still cooking. Marked off as each tray leaves the pass.
+ * ---------------------------------------------------------------- */
+function readyTickets(){
+  const out = [];
+  S.orders.forEach(o => {
+    if(o.settled) return;
+    Object.keys(o.tickets || {}).forEach(k => {
+      const t = o.tickets[k];
+      if(t && t.status === "ready" && !t.served){
+        out.push({o:o, k:k, at:t.at || o.placedAt});
+      }
+    });
+  });
+  return out.sort((a, b) => a.at - b.at);
+}
+function serveTicket(orderId, station){
+  const o = S.orders.find(x => x.id === orderId);
+  if(!o || !o.tickets[station]) return;
+  o.tickets[station].served = true;
+  o.tickets[station].servedAt = Date.now();
+  const all = Object.keys(o.tickets).every(k => o.tickets[k].served);
+  if(all) o.served = true;
+  save();
+  toast(tableName(o.table === "parcel" ? parcelKeyFor(o) : o.table) + " served");
+}
+
+/* Tell the waiter, once per tray. */
+let calledOut = new Set();
+try{ calledOut = new Set(JSON.parse(sessionStorage.getItem("dbc.called") || "[]")); }catch(e){}
+function rememberCalled(){
+  try{ sessionStorage.setItem("dbc.called", JSON.stringify([...calledOut])); }catch(e){}
+}
+function readySpeech(o, k){
+  const where = o.table === "parcel"
+    ? "पार्सल" + ((o.name && o.name !== "Guest") ? ", " + o.name : "")
+    : "टेबल " + o.table;
+  return "खाना तैयार है। " + where + "। " + STATIONS[k].name + "।";
+}
+function announceReady(){
+  if(!VOICE.on || !DEV.staff || UI.role !== "serve") return;
+  readyTickets().forEach(r => {
+    const tag = r.o.id + "|" + r.k;
+    if(calledOut.has(tag)) return;
+    calledOut.add(tag);
+    rememberCalled();
+    chime();
+    setTimeout(() => say(readySpeech(r.o, r.k)), 420);
+  });
+}
+function seedCalled(){
+  readyTickets().forEach(r => calledOut.add(r.o.id + "|" + r.k));
+  rememberCalled();
+}
+
+function vServe(){
+  const list = readyTickets();
+  return `<div class="k-head">
+      <div class="k-badge" style="background:var(--ok)">&#127869;</div>
+      <div>
+        <h2>Ready to serve</h2>
+        <p>Take each tray out, then tap it off the list</p>
+      </div>
+      <div class="k-counts">
+        <div class="kcount"><b class="num">${list.length}</b><span>Waiting</span></div>
+        <button class="voicebtn ${VOICE.on ? "on" : ""}" data-act="voice"
+          title="${esc(voiceLabel())}" aria-pressed="${VOICE.on}">
+          ${VOICE.on ? "&#128266;" : "&#128263;"} <span>${VOICE.on ? "Calls on" : "Calls off"}</span></button>
+      </div>
+    </div>
+    ${list.length ? `<div class="tickets">
+      ${list.map(r => {
+        const items = r.o.items.filter(i => i.k === r.k);
+        const waited = mins(r.at);
+        const cold = waited >= 5;
+        return `<article class="chit ${cold ? "late" : ""}" style="--stn-c:${STATIONS[r.k].color}">
+          <div class="perf"></div>
+          <div class="top">
+            <div class="tbl">${r.o.table === "parcel" ? "PARCEL" : "Table " + r.o.table}
+              <small>${esc(r.o.name || "")}</small></div>
+            <span class="idno">${esc(r.o.id)}</span>
+          </div>
+          <div class="clock"><span aria-hidden="true">&#9201;</span>
+            <span class="num">ready ${waited} min</span>${cold ? " &middot; going cold" : ""}</div>
+          <div style="padding:0 14px 4px">
+            <span class="badge" style="background:color-mix(in srgb,${STATIONS[r.k].color} 16%,transparent);
+              color:${STATIONS[r.k].color}">${esc(STATIONS[r.k].name)}</span>
+          </div>
+          <ul>
+            ${items.map(i => `<li>
+              <div class="ln"><span class="q num">${i.qty}&times;</span><span class="nm">${esc(i.n)}</span></div>
+              ${i.mods.length ? `<div class="mod">${esc(i.mods.join(" · "))}</div>` : ""}
+            </li>`).join("")}
+          </ul>
+          <div class="act">
+            <button class="btn" style="background:var(--ok)" data-act="serve"
+              data-v="${esc(r.o.id)}" data-k="${esc(r.k)}">Taken to table</button>
+          </div>
+        </article>`;
+      }).join("")}
+    </div>`
+    : `<div class="empty">Nothing waiting at the pass.<br>
+        <span style="font-size:12.5px">A card appears the moment a kitchen marks food ready.</span></div>`}`;
+}
+
 function vKitchen(k){
   const s = STATIONS[k];
   const mine = S.orders.filter(o => o.tickets[k]);
@@ -1663,7 +1770,9 @@ function connPanel(){
 }
 
 function render(){
+  const waiting = (DEV.staff && signedIn()) ? readyTickets().length : 0;
   const roles = [["k:wok","Chinese & Bread"], ["k:tandoor","Tandoor"], ["k:chaat","Chaat"],
+                 ["serve", "Ready to serve" + (waiting ? " (" + waiting + ")" : "")],
                  ["bills","Tables & bills"]]
                  .concat(isOwner() ? [["admin","Owner"]] : []);
   $("#roles").innerHTML = (DEV.staff && signedIn()) ? roles.map(([k, l]) =>
@@ -1699,6 +1808,9 @@ function render(){
       </div></div>`;
   } else if(UI.role.startsWith("k:")){
     $("#view").innerHTML = vKitchen(UI.role.slice(2));
+  } else if(UI.role === "serve"){
+    $("#view").innerHTML = `<div class="wrap">${vServe()}</div>`;
+    announceReady();
   } else if(UI.role === "bills"){
     $("#view").innerHTML = `<div class="wrap">
       ${UI.billTable != null ? vBill(UI.billTable) : vTables()}
@@ -1772,6 +1884,7 @@ document.addEventListener("click", ev => {
       break;
     }
     case "canceldel": UI.confirmDel = null; render(); break;
+    case "serve": serveTicket(v, el.dataset.k); break;
     case "adv": advance(v, el.dataset.k); break;
     case "back": stepBack(v, el.dataset.k); break;
     case "served": markServed(v); break;
@@ -1853,6 +1966,7 @@ setInterval(() => {
 
 load();
 seedSpoken();
+seedCalled();
 render();
 if(signedIn() && !ROLE.checked) loadRole();
 syncTopbar();
